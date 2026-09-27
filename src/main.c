@@ -352,6 +352,12 @@ static void ff_host_poll(void) {
     cyw43_ndp_ra_poll();
     if (ff_w5500_live && ff_w5500_dev) w5500_poll(ff_w5500_dev);
     w5500_board_poll();  /* no-op unless -board pico-eth */
+    /* MicroPython REPL input must also drain during WFE fast-forward:
+     * b.active(True) ends in mp_event_wait_indefinite (WFE loop) and
+     * never returns to the REPL, so main-loop stdin polls starve and
+     * later REPL lines sit in the host pipe forever. Poll here too —
+     * uart_stdin_poll is side-effect-free when no bytes are ready. */
+    if (stdin_enabled) uart_stdin_poll();
 }
 
 /* MIPS rate for -status (wall-clock). Throttled to ~1Hz. */

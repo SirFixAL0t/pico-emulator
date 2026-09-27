@@ -40,11 +40,13 @@ static int cyw43_trace_en(void) {
 /* CYW43439 chip ID */
 #define CYW43439_CHIP_ID 0x00A9A6A7
 
-/* WiFi GPIO pin assignments (Pico W) */
-#define WL_CS         23
-#define WL_CLK        24
-#define WL_DIO        25
-/* WL_HOST_WAKE = GPIO 24 (shared with CLK/DIO in different phases).
+/* WiFi GPIO pin assignments (Pico W, from pico_w.h):
+ * DATA_OUT=24, DATA_IN=24, HOST_WAKE=24 (shared data/wake line),
+ * CLOCK=29 (sideset base the PIO autodetect keys on), CS=25. */
+#define WL_CS         25
+#define WL_CLK        29
+#define WL_DIO        24
+/* WL_HOST_WAKE = GPIO 24 (shared with DATA in both phases).
  * Active HIGH: CYW43 asserts this to tell RP2040 that data is available.
  * cyw43_ll.c checks gpio_get(24) != 0 before polling the interrupt register. */
 #define WL_HOST_WAKE  24
@@ -79,8 +81,15 @@ static int rx_queue_count(void) {
 /* Drive WL_HOST_WAKE (GPIO 24) HIGH when data is queued, LOW when empty.
  * cyw43_ll.c's sdpcm_poll_device checks gpio_get(WL_HOST_WAKE) == 1 before
  * reading the SPI interrupt register, so we must assert this whenever there
- * is a frame waiting in rx_queue. BT shares the same wake line: pending
- * BT->host bytes assert it too, so the poll path picks up HCI events. */
+ * is a frame waiting in rx_queue. BT shares the same wake line but with
+ * EDGE semantics (see bt_wake_pending): the line asserts when a B2H packet
+ * is queued and deasserts when the guest acks the BT interrupt — it is NOT
+ * held high while B2H bytes sit unconsumed. Holding it level-high wedges
+ * the guest in a GPIO-IRQ/PendSV ping-pong (re-arm fires instantly, thread
+ * mode never resumes, the scheduler task that consumes B2H never runs),
+ * so the Reset CC sits queued (in=12 out=0) with 0x1001+ never issued.
+ * B2H_OUT lives in bt_ram[0x200C..0x200F] (written by the guest when it
+ * consumes); bt_b2h_in is our producer cursor. */
 static int cyw43_bt_pending(void) {
     uint32_t out = (uint32_t)cyw43.bt_ram[0x200C] |
                    ((uint32_t)cyw43.bt_ram[0x200D] << 8) |
@@ -110,10 +119,11 @@ static void cyw43_update_irq(void) {
      * different (MicroPython GPIO-IRQ) path, not this LEVEL_HIGH one. */
     gpio_set_direction(WL_HOST_WAKE, 0);  /* 0 = input */
     gpio_mark_driven(WL_HOST_WAKE);  /* guest OE must not clobber the line */
-    int pend = (rx_queue_count() > 0 || cyw43_bt_pending()) ? 1 : 0;
+    int pend = (rx_queue_count() > 0 || cyw43.bt_wake_pending) ? 1 : 0;
     if (CYW43_DBG)
-        fprintf(stderr, "[CYW43] update_irq: GPIO24=%d (q=%d btpend=%d)\n",
-                pend, rx_queue_count(), cyw43_bt_pending());
+        fprintf(stderr, "[CYW43] update_irq: GPIO24=%d (q=%d btwake=%d btpend=%d)\n",
+                pend, rx_queue_count(), cyw43.bt_wake_pending,
+                cyw43_bt_pending());
     gpio_set_input_pin(WL_HOST_WAKE, pend);
 }
 
@@ -1412,7 +1422,16 @@ static uint32_t cyw43_bus_read(uint32_t addr) {
     switch (addr & 0xFF) {
     case 0x00: /* SPI_BUS_CONTROL */
         return cyw43.bus_ctrl;
-    case 0x04: /* SPI_INTERRUPT_REGISTER - F2_PACKET_AVAILABLE=0x20 when queued */
+    case 0x04: /* SPI_INTERRUPT_REGISTER - F2_PACKET_AVAILABLE=0x20 when a
+                 * WLAN frame is queued. BT events do NOT live here: the BT
+                 * driver reads them via the windowed SDIO_INT_STATUS word
+                 * (0x18002020, func=1 addr=0x0A020), which carries FC_CHANGE
+                 * while B2H bytes wait. OR-ing 0x20 for BT here fakes an
+                 * F2 WLAN packet: sdpcm_poll passes its F2 gate, reads a
+                 * zero WLAN frame and returns -1, and the BT poll that
+                 * follows in cyw43_poll_func never runs again once the BT
+                 * stack stops re-scheduling it — Reset CC sits queued
+                 * (in=12 out=0) with 0x1001+ never issued. */
     {
         uint32_t val = cyw43.bus_int;
         if (rx_queue_count() > 0)
@@ -1758,6 +1777,7 @@ static void cyw43_bt_queue_hci(uint8_t pkt_type, const uint8_t *payload,
     cyw43.bt_b2h_in = (cyw43.bt_b2h_in + (uint32_t)pktlen) & 0xFFF;
     bt_ram_wr32(0x2008, cyw43.bt_b2h_in);
     cyw43.bt_int_status |= CYW43_BT_FC_CHANGE;
+    cyw43.bt_wake_pending = 1;  /* edge: (re)assert the shared wake line */
     if (CYW43_DBG)
         fprintf(stderr, "[CYW43] BT B2H queued type=%u paylen=%d in=%u out=%u\n",
                 pkt_type, paylen, cyw43.bt_b2h_in,
@@ -3131,20 +3151,48 @@ static uint32_t cyw43_backplane_read(uint32_t addr) {
         return cyw43.chipclkcsr;
     }
 
-    /* SDIO_INT_STATUS (WLAN 0x18002000 window + 0x20, masked to 15 bits =
-     * low alias 0x0020): the SAME word as BT INT_STATUS. The BT driver
-     * (cyw43_ll_bt_has_work) may read it with EITHER the stale window
-     * (bp_window still 0x18000000 — the driver's set_backplane_window
-     * is a no-op once the window already matches — full 0x18002020)
-     * OR the exact WLAN window, so match the full address too. Without
-     * this the FC_CHANGE clear is dropped, bt_has_work stays true
-     * forever, and the guest spins on the same stale CC read (0A020
-     * x360k, never issuing 0x1001+). */
+    /* SDIO_INT_STATUS (full 0x18002020): the SAME word as BT INT_STATUS.
+     * The BT driver (cyw43_ll_bt_has_work) reads it windowed: the driver
+     * sets the window to 0x18000000 (full & ~0x7FFF) then reads raw
+     * 0x0A020 (0x2020 + 0x8000 flag, stripped above). Reconstruct the
+     * full address from window + low 15 bits and match that single
+     * form: it covers the stale-window case too (bp_window still
+     * 0x18000000 when set_backplane_window is a no-op). Without this
+     * the FC_CHANGE clear is dropped, bt_has_work stays true forever,
+     * and the guest spins on the same stale CC read (0A020 x360k,
+     * never issuing 0x1001+). */
     uint32_t sdio_full = cyw43.bp_window | (addr & 0x7FFF);
-    if ((addr & 0x7FFF) == 0x0020 &&
-        (sdio_full == 0x18002020u || cyw43.bp_window == 0x18002000u)) {
+    if (sdio_full == 0x18002020u) {
+        /* The FC_CHANGE bit itself stays level while B2H bytes wait (so
+         * no wakeup is lost), but READING the word acks the BT share of
+         * the HOST_WAKE edge: deassert the line here. The guest's
+         * level-IRQ handler already disabled its own IRQ enable on
+         * entry; the line must be LOW when POST_POLL_HOOK re-enables
+         * it, or it refires instantly into an IRQ/PendSV ping-pong
+         * that starves the scheduler task which consumes B2H. A NEW
+         * B2H packet reasserts (see cyw43_bt_queue_hci). */
         if (cyw43_bt_pending())
             cyw43.bt_int_status |= CYW43_BT_FC_CHANGE;
+        if (cyw43.bt_wake_pending && (cyw43.bt_int_status & CYW43_BT_FC_CHANGE)) {
+            cyw43.bt_wake_pending = 0;
+            cyw43_update_irq();
+        }
+        if (CYW43_DBG) {
+            /* Sampled guest-PC log: the guest spins here ~1M× while
+             * the Reset CC sits queued. First 10 + every 100kth shows
+             * which caller spins (bt_has_work vs WLAN SDIO clear)
+             * without flooding the trace. cpu.r[15] mirrors the
+             * GPIO-TRACE pc= pattern; cpu.r[14] (LR) identifies the
+             * caller inside cyw43_spi_transfer. */
+            static unsigned sdio_rd_n = 0;
+            if (sdio_rd_n < 10 || (sdio_rd_n % 100000) == 0)
+                fprintf(stderr, "[CYW43] SDIO_INT rd #%u pc=0x%08X lr=0x%08X "
+                        "-> 0x%08X (pend=%d in=%u out=%u)\n",
+                        sdio_rd_n, cpu.r[15], cpu.r[14], cyw43.bt_int_status,
+                        cyw43_bt_pending(), cyw43.bt_b2h_in & 0xFFF,
+                        bt_ram_rd32(0x200C) & 0xFFF);
+            sdio_rd_n++;
+        }
         return cyw43.bt_int_status;
     }
 
@@ -3186,13 +3234,14 @@ static uint32_t cyw43_backplane_read(uint32_t addr) {
     if (full_addr == CYW43_BT_HOST_CTRL_REG) return cyw43.bt_host_ctrl;
     if (full_addr == CYW43_BT_RAM_BASE_REG) return CYW43_BT_RAM_BASE;
     if (full_addr == CYW43_BT_INT_STATUS_REG) {
-        /* Level semantics: FC_CHANGE reasserts while BT bytes wait, so a
-         * WiFi-side write-1-to-clear (which masks 0xF0, covering bit 5)
-         * cannot lose a pending BT wakeup. This is the SAME word as the
-         * WLAN SDIO_INT_STATUS (0x18002020) the driver's bt_has_work
-         * polls, so BT event delivery depends on it. */
+        /* Same word as SDIO_INT_STATUS above (identical address): the
+         * read acks the BT HOST_WAKE edge the same way. */
         if (cyw43_bt_pending())
             cyw43.bt_int_status |= CYW43_BT_FC_CHANGE;
+        if (cyw43.bt_wake_pending && (cyw43.bt_int_status & CYW43_BT_FC_CHANGE)) {
+            cyw43.bt_wake_pending = 0;
+            cyw43_update_irq();
+        }
         return cyw43.bt_int_status;
     }
     if (full_addr >= CYW43_BT_RAM_BASE &&
@@ -3202,6 +3251,27 @@ static uint32_t cyw43_backplane_read(uint32_t addr) {
                ((uint32_t)cyw43.bt_ram[o + 1] << 8) |
                ((uint32_t)cyw43.bt_ram[o + 2] << 16) |
                ((uint32_t)cyw43.bt_ram[o + 3] << 24);
+        /* B2H consumer index (B2H_OUT @ 0x200C) is the ONLY proof the
+         * guest consumed the queued Reset CC. Log every write to the
+         * index word + every read of it (unconditional: only ~10
+         * expected per run, and this is the crux of the stall). */
+        if (CYW43_DBG && o == 0x200C)
+            fprintf(stderr, "[CYW43] B2H_OUT rd pc=0x%08X -> 0x%08X "
+                    "(b2h_in=%u win=0x%08X)\n",
+                    cpu.r[15], v, cyw43.bt_b2h_in & 0xFFF,
+                    cyw43.bp_window);
+        if (CYW43_DBG) {
+            /* Trace BT-RAM windowed accesses: indices live at 0x2000+,
+             * payload at 0x0000-0x1FFF (H2B) / 0x1000-0x1FFF (B2H).
+             * First 40 + every 200kth: enough to see the one index-block
+             * read vs the missing payload follow-up. */
+            static unsigned btram_n = 0;
+            if (btram_n < 40 || (btram_n % 200000) == 0)
+                fprintf(stderr, "[CYW43] BT_RAM rd #%u pc=0x%08X "
+                        "off=0x%04X -> 0x%08X (win=0x%08X)\n",
+                        btram_n, cpu.r[15], o, v, cyw43.bp_window);
+            btram_n++;
+        }
         return v;
     }
 
@@ -3264,10 +3334,12 @@ static void cyw43_backplane_write(uint32_t addr, uint32_t val) {
     uint32_t full_addr = cyw43.bp_window | (addr & 0x7FFF);
 
     /* SDIO_INT_STATUS write: same word as BT INT_STATUS (see the read
-     * path above: the full 0x18002020 form must match regardless of
-     * the stale window). */
-    if ((addr & 0x7FFF) == 0x0020 &&
-        (full_addr == 0x18002020u || cyw43.bp_window == 0x18002000u)) {
+     * path above: match the reconstructed full 0x18002020).
+     * Plain write-1-to-clear: the FC_CHANGE bit itself stays level via
+     * the read path while B2H bytes wait (no wakeup lost), and the
+     * HOST_WAKE edge was already acked by the read that precedes this
+     * write in bt_has_work. */
+    if (full_addr == 0x18002020u) {
         cyw43.bt_int_status &= ~val;
         return;
     }
@@ -3285,8 +3357,7 @@ static void cyw43_backplane_write(uint32_t addr, uint32_t val) {
      * needed here. */
     if (full_addr == CYW43_BT_HOST_CTRL_REG) { cyw43.bt_host_ctrl = val; return; }
     if (full_addr == CYW43_BT_INT_STATUS_REG) {
-        /* Write-1-to-clear. Stale clears are harmless: the read side
-         * reasserts FC_CHANGE while BT bytes are still pending. */
+        /* Plain write-1-to-clear (same word as above). */
         cyw43.bt_int_status &= ~val;
         return;
     }
@@ -3297,6 +3368,14 @@ static void cyw43_backplane_write(uint32_t addr, uint32_t val) {
         cyw43.bt_ram[o + 1] = (val >> 8) & 0xFF;
         cyw43.bt_ram[o + 2] = (val >> 16) & 0xFF;
         cyw43.bt_ram[o + 3] = (val >> 24) & 0xFF;
+        if (CYW43_DBG) {
+            static unsigned btramw_n = 0;
+            if (btramw_n < 40 || (btramw_n % 200000) == 0)
+                fprintf(stderr, "[CYW43] BT_RAM wr #%u pc=0x%08X "
+                        "off=0x%04X <= 0x%08X (win=0x%08X)\n",
+                        btramw_n, cpu.r[15], o, val, cyw43.bp_window);
+            btramw_n++;
+        }
         /* Host appended HCI bytes: parse + answer synchronously.
          * Bulk writes land consecutive words, so any word covering
          * H2B_IN (offset 0x2000) means new bytes arrived. */

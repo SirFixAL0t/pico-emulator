@@ -255,6 +255,16 @@ typedef struct {
     uint32_t bt_int_status; /* sticky SDIO INT_STATUS bits (BT FC_CHANGE) */
     uint32_t bt_h2b_out; /* host->BT consumed position (mod 0x1000) */
     uint32_t bt_b2h_in;  /* BT->host produce position (mod 0x1000) */
+    /* BT HOST_WAKE edge latch: set when a B2H packet is queued, cleared
+     * when the guest acks the BT interrupt (reads INT_STATUS with
+     * FC_CHANGE, or writes FC_CHANGE to clear). Real CYW43 deasserts the
+     * wake line on INT ack — it does NOT hold it level-high while B2H
+     * bytes sit unconsumed. Holding it level-high wedges the guest in
+     * an IRQ/PendSV ping-pong that starves its own scheduler task, so
+     * the queued HCI event is never consumed (Reset CC in=12 out=0
+     * forever, 0x1001+ never issued). WLAN frames keep level semantics
+     * (rx_queue level) — only the BT share of the line is edge. */
+    int bt_wake_pending;
     /* BLE GAP state (bare-metal + room): advertising flag + payload,
      * scanner flag. Peers exchange ADV over vnet ethertype 0x88B5. */
     int bt_adv_enabled;
