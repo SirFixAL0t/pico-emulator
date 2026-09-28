@@ -15,10 +15,12 @@ isolates both chips); MACRAW socket 0 on the shared vnet bus (same
 gateway/room/DHCP as WiFi + W5500); live host sockets + WASM proxy pump
 (chip-agnostic framing, `picoemu_board_eth6300`/`picoemu_net_enable6300`/
 `picoemu_w6300_{push_rx,push_status,pop_tx,tx_len,gw_enable}` exports);
-in-tree `eth_dhcp6300` (full DORA live on M0+/M33/RV32) + `eth_http6300`
-(DORA+ARP→SYN→GET→200→FIN→`ETH HTTP-DONE` live on M0+/M33, RV32
-sweep-locked) guests + `ethdhcp6300` Arduino sketch (vendored, build pending
-the W6300 Arduino lib); 12 new unit tests; sweep 68/68; WASM green
+in-tree `eth_dhcp6300` (full DORA live on M0+/M33/RV32 — RV32 verified
+2026-09-28 with guest-first/peer-second startup ordering) + `eth_http6300`
+(DORA+ARP→SYN→GET→200→FIN→`ETH HTTP-DONE` live on all three, RV32 verified
+2026-09-28 the same way) guests + `ethdhcp6300` Arduino sketch (compiles
+M0+/M33 via in-core `lwIP_w6300` + `wiznet_6300_evb_pico[_2]` FQBNs; no DORA
+— driver uses a PIO+DMA QSPI program, unmodeled transport, root-caused); 12 new unit tests; sweep 68/68; WASM green
 (`test-wasm.js` + gateway E2E + `board_eth6300` MACRAW-OK probe).
 
 ## [Unreleased] - 2026-09-23
