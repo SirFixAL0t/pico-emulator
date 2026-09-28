@@ -1,17 +1,24 @@
 #include <W6300lwIP.h>
-// pico-w6300 DHCP prove-out (WIZnet W6300-EVB-Pico/Pico2, QSPI-single on
-// SPI0, CS16/RST22/INT15). Mirrors ethdhcp.ino (W5500, CS17/RST20/INT21).
-// FQBN pico (M0+): rp2040:rp2040:wiznet_w6300_evb_pico (if available)
-// FQBN pico2 (M33): rp2040:rp2040:wiznet_w6300_evb_pico2 (if available)
+// pico-w6300 DHCP prove-out (WIZnet W6300-EVB-Pico/Pico2).
+// FQBN pico (M0+): rp2040:rp2040:wiznet_6300_evb_pico
+// FQBN pico2 (M33): rp2040:rp2040:wiznet_6300_evb_pico2
 // Prints ETH-BEGIN-OK, then ETH-IP=<addr> once DHCP binds (or (IP unset)).
 // Emulator run (needs a live peer — Arduino DHCP has no dead-peer marker):
 //   ./build/picoemu /tmp/ethdhcp6300/out/ethdhcp6300.ino.uf2 -board pico-w6300 \
 //       -net-peer /tmp/ethdhcp6300.sock
 //   python3 test-firmware/dhcp_peer_test.py /tmp/ethdhcp6300.sock
 // Expect: ALL DHCP CHECKS PASSED + ETH-IP=192.168.4.2 on UART.
-// NOTE: requires the Wiznet W6300 Arduino library (W6300lwIP); if the
-// core/lib is not installed the sketch does not compile — the in-tree
-// eth_dhcp6300 guests remain the offline-capable prove-out.
+//
+// TRANSPORT NOTE (verified 2026-09-28): the W6300 Arduino driver talks to
+// the chip through a PIO+DMA QSPI program (wiznet_pio_qspi: PIO SM shifts
+// opcode/addr/data over IO0-IO3 with DMA feeding TXF/RXF, CS on pin 16).
+// The emulator models the W6300 register file behind the PL022 SPI path
+// (QSPI-single framing, CS16/RST22/INT15) — the PIO program path that
+// feeds it bytes is NOT modeled (same class of gap as CYW43 PIO before
+// its gSPI intercept). So this sketch compiles (core lib present) but
+// prints only ETHDHCP-START: no register traffic reaches the model. The
+// in-tree eth_dhcp6300/eth_http6300 guests (bit-banged PL022 SPI) are the
+// working prove-out for the same wire behavior (DORA + HTTP-DONE green).
 Wiznet6300lwIP eth(16, SPI, 15);
 
 static unsigned long spin_until(unsigned long ms) {

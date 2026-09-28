@@ -63,11 +63,14 @@
 #define W6300_TX_BUF_SIZE   4096    /* Per socket (W5500: 2048) */
 #define W6300_RX_BUF_SIZE   4096    /* Per socket (W5500: 2048) */
 
-/* QSPI opcode: [block:7..3][R/W:bit5? NO — bit2][mode:1..0].
+/* QSPI opcode: [QSPI-mode:7..6][R/W:bit5][block:4..0].
  * From ioLibrary w6300.h: _W6300_SPI_WRITE_ = (0x01 << 5) = 0x20,
- * block = AddrSel & 0xFF (WIZCHIP_SREG_BLOCK(N) = 1+4N already shifted).
+ * block = AddrSel & 0xFF (WIZCHIP_SREG_BLOCK(N) = 1+4N, NOT shifted).
  * So opcode = block | 0x20 (write) | QSPI-mode, e.g. sock-0 regs write
- * = 0x01|0x20 = 0x21, common write = 0x00|0x20 = 0x20.
+ * = 0x01|0x20 = 0x21 (single) or 0xA1 (quad), common write = 0x20/0xA0.
+ * The Arduino driver uses QSPI_QUAD_MODE (0x80): opcodes arrive as
+ * 0x80+block(+0x20). The model masks the mode bits, so single/dual/quad
+ * all decode identically (byte path has no IO2/IO3 wires).
  * (DIFFERENT from W5500: W5500 puts block at bits [7..3] and R/W at
  * bit 2, so sock-0 regs write = (1<<3)|0x04 = 0x0C.) */
 #define W6300_OP_BLOCK(op)  ((op) & 0x1F)

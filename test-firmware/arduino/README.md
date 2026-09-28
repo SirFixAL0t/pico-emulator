@@ -32,12 +32,14 @@ python3 test-firmware/dhcp_peer_test.py /tmp/ethdhcp.sock
 # expect ALL DHCP CHECKS PASSED + ETH-IP=192.168.4.2 on UART
 ```
 
-Compile the pico-w6300 DHCP sketch e.g. (needs the W6300 Arduino library):
+Compile the pico-w6300 DHCP sketch e.g. (in-core `lwIP_w6300` lib + FQBNs present):
 
 ```sh
-arduino-cli compile --fqbn rp2040:rp2040:wiznet_w6300_evb_pico \
+arduino-cli compile --fqbn rp2040:rp2040:wiznet_6300_evb_pico \
   --output-dir /tmp/ethdhcp6300/out test-firmware/arduino/ethdhcp6300/ethdhcp6300.ino
-# M33: --fqbn rp2040:rp2040:wiznet_w6300_evb_pico2 (same sketch)
+# M33: --fqbn rp2040:rp2040:wiznet_6300_evb_pico2 (same sketch)
+# NOTE 2026-09-28: builds clean (M0+ 106736B / M33 101708B) but does not
+# reach DORA — driver uses a PIO+DMA QSPI program, unmodeled (see row).
 ```
 
 Run it against the python peer (needs a live peer — no dead-peer marker):
@@ -56,7 +58,7 @@ python3 test-firmware/dhcp_peer_test.py /tmp/ethdhcp6300.sock
 | `srv` / `cli` | Pico W | TCP echo server+client over gateway/vnet (static IP). |
 | `m33wifi` | Pico 2 W | in-tree repro (`m33wifi.ino`, scan + join). **Green since 2026-09-19**: prints `SCAN n=3`, `STATUS=3`, `IP=192.168.4.2` under `-arch m33 -wifi` (same HOST_WAKE level fix as RV32 join; the `n=0` row was stale). |
 | `ethdhcp` | W5500-EVB-Pico / Pico2 | Real ioLibrary DHCP (`Wiznet5500lwIP`, CS17/RST20/INT21) via `dhcp_peer_test.py`. **M0+ GREEN** (full DORA: peer `ALL DHCP CHECKS PASSED` + `conn=1 ip=192.168.4.2`) after the RX cursor-latch fix (`src/w5500.c`: latch `rx_cursor_base` BEFORE the first DATA-byte read — stale base 0 corrupted the ACK prefix pull at RX_RD=0x0158, len 342→86). **M33 GREEN since 2026-09-22** (`ethdhcp_m33`, `Serial1`/UART0 because USB-CDC is unmodeled on M33, `rp2040:rp2040:wiznet_5500_evb_pico2`, `-board pico-eth2 -arch m33`): full DORA after the `6b698f7` RP2350-map fixes (IO_BANK0 base routing + IRQ map 13→21): peer `ALL DHCP CHECKS PASSED` (`chaddr=020123520001`) + guest `conn=1 ip=192.168.4.2`. Build: `arduino-cli compile --fqbn rp2040:rp2040:wiznet_5500_evb_pico2 --output-dir /tmp/ethdhcp_m33 test-firmware/arduino/ethdhcp_m33/ethdhcp_m33.ino`. |
-| `ethdhcp6300` | W6300-EVB-Pico / Pico2 | Real ioLibrary DHCP (`W6300lwIP`, CS16/RST22/INT15, QSPI-single) via `dhcp_peer_test.py`. 🟡 **sketch vendored, build pending W6300 Arduino library** (`arduino-cli lib list` shows no Wiznet W6300 lib here; core FQBNs `wiznet_w6300_evb_pico[_2]` also absent) — the emulator side is done (CIDR/locks/PHYSR/IRCLR + board CS16/RST22/INT15 + live/proxy paths, 12 unit tests green) and the in-tree `eth_dhcp6300`/`eth_http6300` guests prove the same wire behavior. Build once the lib lands: `arduino-cli compile --fqbn rp2040:rp2040:wiznet_w6300_evb_pico --output-dir /tmp/ethdhcp6300/out test-firmware/arduino/ethdhcp6300/ethdhcp6300.ino`. |
+| `ethdhcp6300` | W6300-EVB-Pico / Pico2 | Real ioLibrary DHCP (`W6300lwIP`, CS16/RST22/INT15, PIO-QSPI) via `dhcp_peer_test.py`. 🟡 **compiles, no DORA: transport gap, root-caused 2026-09-28** — core FQBNs `rp2040:rp2040:wiznet_6300_evb_pico[_2]` + in-core `lwIP_w6300` lib ARE present (M0+ 106736B + M33 101708B UF2s build clean), but the driver talks to the chip through a PIO+DMA QSPI program (`wiznet_pio_qspi`: PIO SM shifts opcode/addr/data over IO0-IO3 with DMA feeding TXF/RXF, CS pin 16 via `gpio_put`), NOT the PL022 SPI path the emulator register file sits behind — so no register traffic arrives (guest prints only `ETHDHCP-START`, M0+ 120s + M33 85s wall, zero DISCOVER). Same class of gap as CYW43 PIO before its gSPI intercept; bridging it needs a PIO-program snoop or QSPI-register shim (future work). The in-tree `eth_dhcp6300`/`eth_http6300` guests (bit-banged PL022 SPI, same wire behavior: DORA + HTTP-DONE live on M0+/M33) remain the working prove-out.
 | `apap` | Pico W | Soft-AP (`beginAP`, .1): beacon, DHCP server, TCP echo. |
 | `staap` / `stajoin` | Pico W | STA join to emulated AP (open; DHCP+TCP / status-only). |
 | `dhcpd` | Pico W | DHCP via real gateway (needs `sys_check_timeouts()` pumped). |
