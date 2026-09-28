@@ -1320,12 +1320,10 @@ void cyw43_init(void) {
     if (!booted) { cyw43.vnet_port = -1; booted = 1; }
     cyw43_reset();
 
-    /* Add default fake APs for testing. "BrambleNet" is kept as a legacy
-     * alias: prebuilt Pico-SDK WiFi demos (wifi_join/wifi_ping/webserver
-     * .uf2, no in-repo generator) bake it in as their join target, so it
-     * must stay visible or those guests regress to JOIN FAIL. Four APs
-     * total, so scans report n=4. */
-    cyw43_add_scan_result("BrambleNet", -45, 6, 3);
+    /* Default fake APs for testing. All in-tree WiFi guests join
+     * "Pico-emuNet" (sources vendored: test-firmware/rvwifi/,
+     * test-firmware/arduino/webping/, test-firmware/arduino/websrv/),
+     * so no legacy alias is needed. Three APs total: scans report n=3. */
     cyw43_add_scan_result("Pico-emuNet", -45, 6, 3);
     cyw43_add_scan_result("PicoTestAP", -60, 1, 3);
     cyw43_add_scan_result("OpenNetwork", -70, 11, 0);

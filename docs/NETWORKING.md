@@ -43,7 +43,7 @@ Go gateway (gVisor NAT/DHCP/DNS, rooms) · internet / room LAN ◄────�
 
 | Mode | Flags | Notes |
 |---|---|---|
-| Offline STA | `-wifi` | Fake APs (BrambleNet/Pico-emuNet/PicoTestAP/OpenNetwork — scans report n=4), fake DHCP .2. No host net needed. |
+| Offline STA | `-wifi` | Fake APs (Pico-emuNet/PicoTestAP/OpenNetwork — scans report n=3), fake DHCP .2. No host net needed. |
 | APSTA/AP | `-wifi` | Soft-AP via `bsscfg:ssid` + `bss up`; guest DHCP server serves STA. |
 | TAP | `-tap br0` (+sudo) | Real host bridging. |
 | vnet mesh | `-net -net-peer <sock>` | Rootless instance meshing, no gateway. |
@@ -77,7 +77,7 @@ the classic offload behavior (host-stack or proxy sockets).
 | In-tree HTTP guest (M0+/M33/RV32) | ✅ | `test-firmware/gen_eth_http.py` → `eth_http.S`/`eth_http_rv32.S` → `web/eth_http{,_pico2,_rv32}.uf2`; DORA + ARP→SYN→ACK→GET→200 `hello-eth`→ACK→FIN→`ETH HTTP-DONE` green on all three via `test-firmware/http_peer_test.py` (static TX blobs, per-arch MAC/sport/cseq, server SSEQ `0x00100000`). |
 | Arduino ioLibrary guest (M0+ ✅, M33 ✅) | ✅ both arches | `test-firmware/arduino/ethdhcp/ethdhcp.ino` (`Wiznet5500lwIP`, `rp2040:rp2040:wiznet_5500_evb_pico`): full DORA green since the RX cursor-latch fix (first DATA byte of each CS frame latched the stale base 0, corrupting nonzero-address RX bursts: OFFER head at RX_RD=0 worked, ACK head at RX_RD=0x0158 read hi=0x00 not 0x01, len 342→86, ACK desynced — latch now happens BEFORE the read; peer `ALL DHCP CHECKS PASSED` + guest `conn=1 ip=192.168.4.2`). **M33 green since 2026-09-22** (`test-firmware/arduino/ethdhcp_m33/ethdhcp_m33.ino`, `Serial1`/UART0 because USB-CDC is unmodeled on M33, `rp2040:rp2040:wiznet_5500_evb_pico2`, `-board pico-eth2 -arch m33`): full DORA — peer `ALL DHCP CHECKS PASSED` (DISCOVER `chaddr=020123520001` → REQUEST same xid) + guest `conn=1 ip=192.168.4.2`. Root-caused two stacked RP2350-map-vs-RP2040-map mismatches (`6b698f7`): (1) RP2350 `IO_BANK0` base `0x40028000` unrouted (writes fell into the `PLL_SYS` clocks stub, GPIO21 never armed); (2) RP2350 IRQ map (IO_IRQ_BANK0 13→21 etc.) — NVIC widened to 64 IRQs with `nvic_rp2350_irq()` translation; the ISR had pended at wrong vector 29 (no handler → bkpt) so the OFFER was never polled. |
 | ARM BLE guest (M0+/M33) | ✅ | `test-firmware/gen_ble_arm.py` → `ble_adv.S` → `web/ble_adv{,_pico2}.uf2` (PIO0 SM0): BT bring-up + ADV + scan, prints `BT-CTRL 01000100` / `RAM-BASE 001C0000` / `HOST-READY` / `RESET-OK` / `ADV-OK` / `LISTEN` on both cores, sweep-locked via `run_ble`. Fixed three stacked guest bugs: broken `ba_bswap` middle bytes, missing dummy swap rounds, `.word reset_handler + 1` double Thumb bit. |
-| M0+/M33 Arduino WiFi in sweep | ✅ | `wifi_scan/ping/webserver` M0+/M33 UF2s are Arduino-CLI builds (`~/gwtest`, committed at `7ab5b9c`); sweep covers WiFi on RV32 only. M33 `m33wifi.ino` repro (`test-firmware/arduino/m33wifi/`): **green since 2026-09-19** — prints `SCAN n=4`, `STATUS=3`, `IP=192.168.4.2` under `-arch m33 -wifi` (the `n=0` row was stale; same HOST_WAKE level fix that unblocked RV32 join unblocked the escan IOCTL response path). |
+| M0+/M33 Arduino WiFi in sweep | ✅ | `wifi_scan/ping/webserver` M0+/M33 UF2s are Arduino-CLI builds from vendored sources (`test-firmware/arduino/webping/`, `test-firmware/arduino/websrv/`, all on `Pico-emuNet`); sweep covers WiFi on RV32 only. M33 `m33wifi.ino` repro (`test-firmware/arduino/m33wifi/`): **green since 2026-09-19** — prints `SCAN n=3`, `STATUS=3`, `IP=192.168.4.2` under `-arch m33 -wifi` (the `n=0` row was stale; same HOST_WAKE level fix that unblocked RV32 join unblocked the escan IOCTL response path). |
 | What is NOT done | 🟡 | MP `import bluetooth` WITHOUT `-wifi`: `b.active(True)` fails fast (`Failed to start CYW43`, `EINVAL`) — the guest's BT firmware download needs the gSPI model up. WITH `-wifi` it works: stock Pico-W MP prints `BLE-ACTIVE` + `ADV-OK`, and a `-net-peer` scanner observes the ADV on the vnet room (`test-firmware/mp_ble_room_test.py` PASS x2). |
 
 ## Protocol matrix
@@ -117,8 +117,8 @@ the classic offload behavior (host-stack or proxy sockets).
 | Arch | Scan | STA join | DHCP | TCP/UDP | Notes |
 |---|---|---|---|---|---|
 | RP2040 M0+ (Pico W) | ✅ | ✅ WPA2 + open | ✅ fake/real/guest | ✅ | Reference path. |
-| RP2350 M33 (Pico 2 W) | ✅ | ✅ | ✅ fake | ✅ UDP send; TCP via same models | Needed DMA CTRL remap + SXTAB family. Arduino `m33wifi.ino` green since 2026-09-19 (`SCAN n=4`, join `.2`). |
-| RP2350 RV32 (Hazard3) | ✅ | ✅ WPA2 | ✅ fake (.2) | ✅ TCP server | pico-sdk `wifi_scan` finds 4/4 APs; `rvwifi_join` (lwip_poll) joins Pico-emuNet + DHCP .2 (HOST_WAKE level fix 2026-09-19 — was STALLing on bus credit). Bare-metal `webserver_rv32` serves HTTP on :80 (ARP→SYN→HTTP→FIN vs vnet peer, checksums OK). Bare-metal `ble_adv_rv32` advertises + scans via BT shared bus (room-tested). |
+| RP2350 M33 (Pico 2 W) | ✅ | ✅ | ✅ fake | ✅ UDP send; TCP via same models | Needed DMA CTRL remap + SXTAB family. Arduino `m33wifi.ino` green since 2026-09-19 (`SCAN n=3`, join `.2`). |
+| RP2350 RV32 (Hazard3) | ✅ | ✅ WPA2 | ✅ fake (.2) | ✅ TCP server | pico-sdk `wifi_scan` finds 3/3 APs; `rvwifi_join` (lwip_poll) joins Pico-emuNet + DHCP .2 (HOST_WAKE level fix 2026-09-19 — was STALLing on bus credit). Bare-metal `webserver_rv32` serves HTTP on :80 (ARP→SYN→HTTP→FIN vs vnet peer, checksums OK). Bare-metal `ble_adv_rv32` advertises + scans via BT shared bus (room-tested). |
 
 ## CYW43 model notes (for debuggers)
 
