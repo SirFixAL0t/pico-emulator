@@ -2234,7 +2234,7 @@ d.emit("lbu t0, 0(s2)")
 d.li("t1", 0x0B)
 d.emit("bne t0, t1, ga_gatt_fail")
 d.emit("lbu t0, 1(s2)")
-d.li("t1", 0x42)  # device-name[0] ('B'; DB value is "Pico-emu")
+d.li("t1", 0x50)  # device-name[0] ('P'; DB value is "Pico-emu")
 d.emit("bne t0, t1, ga_gatt_fail")
 d.pstr("RV32 BLE GATT-READ-OK\n")
 # ATT Write Request handle 0x0012 <- "Hi", then Read back.

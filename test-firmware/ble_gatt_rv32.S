@@ -284,7 +284,7 @@ _start:
     addi t1, zero, 11
     bne t0, t1, ga_gatt_fail
     lbu t0, 1(s2)
-    addi t1, zero, 66
+    addi t1, zero, 80
     bne t0, t1, ga_gatt_fail
 .Lr10: auipc a0, %pcrel_hi(.Ls10)
     addi a0, a0, %pcrel_lo(.Lr10)
