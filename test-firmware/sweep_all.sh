@@ -120,6 +120,12 @@ run_eth eth_dhcp6300_rv32.uf2 "ETH MACRAW-OK" 3000000 pico-w6300 rv32
 run_eth eth_http.uf2 "ETH MACRAW-OK" 3000000 pico-eth none
 run_eth eth_http_pico2.uf2 "ETH MACRAW-OK" 3000000 pico-eth2 none
 run_eth eth_http_rv32.uf2 "ETH MACRAW-OK" 3000000 pico-eth rv32
+# pico-w6300 HTTP guests (M0+/M33/RV32): full DORA+HTTP covered by
+# http_peer_test.py with eth_http6300_common arch table; sweep asserts
+# the pre-DORA markers the same way.
+run_eth eth_http6300.uf2 "ETH MACRAW-OK" 3000000 pico-w6300 none
+run_eth eth_http6300_pico2.uf2 "ETH MACRAW-OK" 3000000 pico-w6300-2 none
+run_eth eth_http6300_rv32.uf2 "ETH MACRAW-OK" 3000000 pico-w6300 rv32
 # ARM BLE guests (M0+/M33): BT bring-up + ADV + scan over the CYW43 BT bus
 # (needs -wifi for the gSPI model; LISTEN is local, SCAN-OK needs a peer).
 run_ble ble_adv.uf2 "ARM BLE LISTEN" 500000000
