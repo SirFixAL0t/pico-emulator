@@ -6655,6 +6655,80 @@ TEST(test_w6300_udp_open) {
     PASS();
 }
 
+TEST(test_w6300_init_host_fds) {
+    w6300_t dev;
+    w6300_init(&dev);
+    ASSERT_EQ(0, dev.live, "Live mode should be off by default");
+    ASSERT_EQ(-1, dev.vnet_port, "vnet port should be -1");
+    for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
+        ASSERT_EQ(-1, dev.sockets[i].host_fd, "Host fd should be -1");
+        ASSERT_EQ(-1, dev.sockets[i].host_listen_fd, "Listen fd should be -1");
+    }
+    w6300_set_live(&dev, 1);
+    ASSERT_EQ(1, dev.live, "Should be live after set");
+    w6300_set_live(&dev, 0);
+    ASSERT_EQ(0, dev.live, "Should be not-live after clear");
+    PASS();
+}
+
+TEST(test_w6300_live_tcp_open_creates_host_socket) {
+    w6300_t dev;
+    w6300_init(&dev);
+    w6300_set_live(&dev, 1);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_INIT, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "Socket should be in INIT state after TCP OPEN");
+    ASSERT_TRUE(dev.sockets[0].host_fd >= 0,
+                "Host socket should be created in live mode");
+    if (dev.sockets[0].host_fd >= 0) close(dev.sockets[0].host_fd);
+    PASS();
+}
+
+TEST(test_w6300_live_udp_open_creates_host_socket) {
+    w6300_t dev;
+    w6300_init(&dev);
+    w6300_set_live(&dev, 1);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_UDP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_UDP, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "Socket should be in UDP state");
+    ASSERT_TRUE(dev.sockets[0].host_fd >= 0,
+                "Host UDP socket should be created");
+    if (dev.sockets[0].host_fd >= 0) close(dev.sockets[0].host_fd);
+    PASS();
+}
+
+TEST(test_w6300_live_close_cleans_host_socket) {
+    w6300_t dev;
+    w6300_init(&dev);
+    w6300_set_live(&dev, 1);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_TRUE(dev.sockets[0].host_fd >= 0, "Socket should be open");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CLOSE);
+    ASSERT_EQ(W6300_SOCK_CLOSED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "Socket should be CLOSED");
+    ASSERT_EQ(-1, dev.sockets[0].host_fd, "Host fd should be -1 after close");
+    PASS();
+}
+
+TEST(test_w6300_discon) {
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    ASSERT_EQ(W6300_SOCK_ESTABLISHED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "CONNECT (stub) should reach ESTABLISHED");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_DISCON);
+    ASSERT_EQ(W6300_SOCK_CLOSED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "DISCON should reach CLOSED");
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_DISCON,
+                "DISCON bit should be set");
+    PASS();
+}
+
 TEST(test_w6300_sn_ir_w1c_via_irclr) {
     w6300_t dev;
     w6300_init(&dev);
@@ -8744,6 +8818,11 @@ int main(void) {
     RUN_TEST(test_w6300_physr_polarity);
     RUN_TEST(test_w6300_tcp_open_close);
     RUN_TEST(test_w6300_udp_open);
+    RUN_TEST(test_w6300_init_host_fds);
+    RUN_TEST(test_w6300_live_tcp_open_creates_host_socket);
+    RUN_TEST(test_w6300_live_udp_open_creates_host_socket);
+    RUN_TEST(test_w6300_live_close_cleans_host_socket);
+    RUN_TEST(test_w6300_discon);
     RUN_TEST(test_w6300_sn_ir_w1c_via_irclr);
     RUN_TEST(test_w6300_macraw_gateway_path);
     RUN_TEST(test_board_w6300_off_by_default);
