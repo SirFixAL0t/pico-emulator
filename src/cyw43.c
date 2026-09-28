@@ -1323,7 +1323,8 @@ void cyw43_init(void) {
     /* Add default fake APs for testing. "BrambleNet" is kept as a legacy
      * alias: prebuilt Pico-SDK WiFi demos (wifi_join/wifi_ping/webserver
      * .uf2, no in-repo generator) bake it in as their join target, so it
-     * must stay visible or those guests regress to JOIN FAIL. */
+     * must stay visible or those guests regress to JOIN FAIL. Four APs
+     * total, so scans report n=4. */
     cyw43_add_scan_result("BrambleNet", -45, 6, 3);
     cyw43_add_scan_result("Pico-emuNet", -45, 6, 3);
     cyw43_add_scan_result("PicoTestAP", -60, 1, 3);

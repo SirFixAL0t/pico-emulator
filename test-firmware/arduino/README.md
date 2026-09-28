@@ -37,7 +37,7 @@ python3 test-firmware/dhcp_peer_test.py /tmp/ethdhcp.sock
 | Sketch | Board | What it proves |
 |---|---|---|
 | `srv` / `cli` | Pico W | TCP echo server+client over gateway/vnet (static IP). |
-| `m33wifi` | Pico 2 W | in-tree repro (`m33wifi.ino`, scan + join). **Green since 2026-09-19**: prints `SCAN n=3`, `STATUS=3`, `IP=192.168.4.2` under `-arch m33 -wifi` (same HOST_WAKE level fix as RV32 join; the `n=0` row was stale). |
+| `m33wifi` | Pico 2 W | in-tree repro (`m33wifi.ino`, scan + join). **Green since 2026-09-19**: prints `SCAN n=4`, `STATUS=3`, `IP=192.168.4.2` under `-arch m33 -wifi` (same HOST_WAKE level fix as RV32 join; the `n=0` row was stale). |
 | `ethdhcp` | W5500-EVB-Pico / Pico2 | Real ioLibrary DHCP (`Wiznet5500lwIP`, CS17/RST20/INT21) via `dhcp_peer_test.py`. **M0+ GREEN** (full DORA: peer `ALL DHCP CHECKS PASSED` + `conn=1 ip=192.168.4.2`) after the RX cursor-latch fix (`src/w5500.c`: latch `rx_cursor_base` BEFORE the first DATA-byte read — stale base 0 corrupted the ACK prefix pull at RX_RD=0x0158, len 342→86). **M33 GREEN since 2026-09-22** (`ethdhcp_m33`, `Serial1`/UART0 because USB-CDC is unmodeled on M33, `rp2040:rp2040:wiznet_5500_evb_pico2`, `-board pico-eth2 -arch m33`): full DORA after the `6b698f7` RP2350-map fixes (IO_BANK0 base routing + IRQ map 13→21): peer `ALL DHCP CHECKS PASSED` (`chaddr=020123520001`) + guest `conn=1 ip=192.168.4.2`. Build: `arduino-cli compile --fqbn rp2040:rp2040:wiznet_5500_evb_pico2 --output-dir /tmp/ethdhcp_m33 test-firmware/arduino/ethdhcp_m33/ethdhcp_m33.ino`. |
 | `apap` | Pico W | Soft-AP (`beginAP`, .1): beacon, DHCP server, TCP echo. |
 | `staap` / `stajoin` | Pico W | STA join to emulated AP (open; DHCP+TCP / status-only). |
