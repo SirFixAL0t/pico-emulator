@@ -72,6 +72,7 @@
             <option value="wifi_ping.uf2">WiFi ping</option>
             <option value="wifi_webserver.uf2">WiFi webserver</option>
             <option value="eth_dhcp.uf2">ETH DHCP (pico-eth)</option>
+            <option value="eth_dhcp6300.uf2">ETH DHCP (pico-w6300)</option>
             <option value="eth_http.uf2">ETH HTTP (pico-eth)</option>
             <option value="ble_adv.uf2">BLE advertise M0+ (CYW43)</option>
           </select>
@@ -103,6 +104,7 @@
             <option value="wifi_ping_pico2.uf2">WiFi ping M33</option>
             <option value="wifi_webserver_pico2.uf2">WiFi webserver M33</option>
             <option value="eth_dhcp_pico2.uf2">ETH DHCP M33 (pico-eth2)</option>
+            <option value="eth_dhcp6300_pico2.uf2">ETH DHCP M33 (pico-w6300-2)</option>
             <option value="eth_http_pico2.uf2">ETH HTTP M33 (pico-eth2)</option>
             <option value="ble_adv_pico2.uf2">BLE advertise M33 (CYW43)</option>
           </select>
@@ -138,6 +140,7 @@
             <option value="wifi_ble_adv_rv32.uf2">BLE advertise RV32</option>
             <option value="wifi_ble_gatt_rv32.uf2">BLE GATT RV32</option>
             <option value="eth_dhcp_rv32.uf2">ETH DHCP RV32 (pico-eth)</option>
+            <option value="eth_dhcp6300_rv32.uf2">ETH DHCP RV32 (pico-w6300)</option>
             <option value="eth_http_rv32.uf2">ETH HTTP RV32 (pico-eth)</option>
           </select>
         </label>
@@ -203,7 +206,7 @@
         <span id="ble-status">off</span>
       </div>
       <div style="margin-top:8px">
-        <label>Board <select id="board-select"><option value="">none</option><option value="pico-eth">pico-eth (W5500-EVB-Pico)</option><option value="pico-eth2">pico-eth2 (W5500-EVB-Pico2)</option></select></label>
+        <label>Board <select id="board-select"><option value="">none</option><option value="pico-eth">pico-eth (W5500-EVB-Pico)</option><option value="pico-eth2">pico-eth2 (W5500-EVB-Pico2)</option><option value="pico-w6300">pico-w6300 (W6300-EVB-Pico)</option><option value="pico-w6300-2">pico-w6300-2 (W6300-EVB-Pico2)</option></select></label>
         <label style="margin-left:8px">SPI <select id="board-spi"><option value="0">0</option><option value="1">1</option></select></label>
         <label style="margin-left:8px"><input type="checkbox" id="chk-board-live"> live</label>
       </div>
@@ -424,6 +427,7 @@ function frame() {
     // pump W5500 proxy TX -> net-proxy WebSocket (CONNECT/LISTEN/CLOSE/SEND).
     // Same shared net_proxy as the Net panel; NOT the OpenHW gateway — the
     // W5500 speaks socket-level TCP/UDP, not raw ETH (see docs note).
+    // W6300 pumps identically through its own queue/exports.
     try {
       const ns = window.picoemuNetSocket;
       if (ns && ns.readyState === 1) {
@@ -432,6 +436,14 @@ function frame() {
         if (budget > 0) {
           const ptr = mod._malloc(Math.min(budget, 8192));
           const got = mod._picoemu_w5500_pop_tx(ptr, Math.min(budget, 8192));
+          if (got > 0) ns.send(mod.HEAPU8.slice(ptr, ptr + got));
+          mod._free(ptr);
+        }
+        let b6300 = 0;
+        try { b6300 = mod._picoemu_w6300_tx_len(); } catch(e2) { b6300 = 0; }
+        if (b6300 > 0) {
+          const ptr = mod._malloc(Math.min(b6300, 8192));
+          const got = mod._picoemu_w6300_pop_tx(ptr, Math.min(b6300, 8192));
           if (got > 0) ns.send(mod.HEAPU8.slice(ptr, ptr + got));
           mod._free(ptr);
         }
@@ -576,6 +588,8 @@ async function loadFirmware(data, name) {
   // pico-eth/pico-eth2 board (WIZnet W5500-EVB-Pico/Pico2): separate SPI
   // board, off by default. picoemu_init detaches, so re-apply the UI
   // selection here. Pico2 wiring is identical; only the SoC differs.
+  // pico-w6300/pico-w6300-2 (WIZnet W6300-EVB-Pico/Pico2): QSPI-single
+  // on the same PL022 path (CSn=16/RSTn=22/INTn=15).
   // Single-gateway default: MACRAW socket 0 joins the CYW43 vnet bus, so
   // the SAME Go gateway serves WiFi + Ethernet (no second bridge).
   try {
@@ -585,6 +599,12 @@ async function loadFirmware(data, name) {
       const live = $('chk-board-live')?.checked ? 1 : 0;
       mod._picoemu_board_eth(1, live, spi);
       try { mod._picoemu_w5500_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e2) {}
+      $('status').textContent += ' + ' + b;
+    } else if (b === 'pico-w6300' || b === 'pico-w6300-2') {
+      const spi = parseInt(($('board-spi') || {}).value || '0', 10) || 0;
+      const live = $('chk-board-live')?.checked ? 1 : 0;
+      mod._picoemu_board_eth6300(1, live, spi);
+      try { mod._picoemu_w6300_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e2) {}
       $('status').textContent += ' + ' + b;
     }
   } catch(e) {}
@@ -720,11 +740,16 @@ window.connectNet = () => {
         mod._picoemu_net_set_connected(1); mod._picoemu_net_enable(1);
         // If a pico-eth board is selected, the proxy speaks for it
         // (same 8-socket model; picoemu_w5500_push_rx targets the board).
+        // pico-w6300 behaves the same via picoemu_w6300_push_rx.
         // Single-gateway default keeps MACRAW on the shared vnet bus too.
         if ((($('board-select') || {}).value || '').startsWith('pico-eth')) {
           const spi = parseInt(($('board-spi') || {}).value || '0', 10) || 0;
           try { mod._picoemu_board_eth(1, 1, spi); } catch(e2) {}
           try { mod._picoemu_w5500_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e3) {}
+        } else if ((($('board-select') || {}).value || '').startsWith('pico-w6300')) {
+          const spi = parseInt(($('board-spi') || {}).value || '0', 10) || 0;
+          try { mod._picoemu_board_eth6300(1, 1, spi); } catch(e2) {}
+          try { mod._picoemu_w6300_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e3) {}
         }
       } catch(e) {}
     };
@@ -733,22 +758,36 @@ window.connectNet = () => {
         : typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(0);
       if (!arr.length) return;
       // Demux proxy prefixes: W(sock,len,payload) / S(sock,1,code) / ETH frame / raw UART
-      // Proxy DATA comes as [sock<8, len_lo, len_hi, payload...] (no magic)
+      // Proxy DATA comes as [sock<8, len_lo, len_hi, payload...] (no magic).
+      // When a pico-w6300 board is selected the same bytes go to the W6300.
+      const w6300 = (($('board-select') || {}).value || '').startsWith('pico-w6300');
+      const pushRx = (sock, ptr, len) => {
+        try {
+          if (w6300) mod._picoemu_w6300_push_rx(sock, ptr, len);
+          else mod._picoemu_w5500_push_rx(sock, ptr, len);
+        } catch(err) {}
+      };
+      const pushStatus = (sock, code) => {
+        try {
+          if (w6300) mod._picoemu_w6300_push_status(sock, code);
+          else mod._picoemu_w5500_push_status(sock, code);
+        } catch(err) {}
+      };
       if (arr[0] < 8 && arr.length >= 3 && arr.length === 3 + (arr[1] | (arr[2] << 8)) && (arr[1] | (arr[2] << 8)) > 0) {
         const payload = arr.slice(3);
         const ptr = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, ptr);
-        try { mod._picoemu_w5500_push_rx(arr[0], ptr, payload.length); } catch(err) {}
+        pushRx(arr[0], ptr, payload.length);
         mod._free(ptr);
       } else if (arr[0] === 0x57 && arr.length >= 4) {
         const sock = arr[1], ln = arr[2] | (arr[3] << 8);
         const payload = arr.slice(4, 4 + ln);
         const ptr = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, ptr);
-        try { mod._picoemu_w5500_push_rx(sock, ptr, payload.length); } catch(err) {}
+        pushRx(sock, ptr, payload.length);
         mod._free(ptr);
       } else if (arr[0] === 0x53 && arr.length >= 4) {
-        try { mod._picoemu_w5500_push_status(arr[1], arr[3]); } catch(err) {}
+        pushStatus(arr[1], arr[3]);
       } else if (arr.length >= 6 && arr[0] === 0x45 && arr[1] === 0x54 && arr[2] === 0x48) {
         const ln = arr[4] | (arr[5] << 8);
         const frame = arr.slice(6, 6 + ln);

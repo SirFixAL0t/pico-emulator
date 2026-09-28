@@ -19,7 +19,7 @@ SOURCES=(
   src/spi.c src/i2c.c src/pwm.c src/adc.c src/dma.c
   src/pio.c src/nvic.c src/clocks.c src/usb.c src/rtc.c
   src/rom.c src/gdb.c src/storage.c src/sdcard.c src/emmc.c
-  src/fatfs.c src/w5500.c src/bme280.c src/cyw43.c
+  src/fatfs.c src/w5500.c src/w6300.c src/bme280.c src/cyw43.c
   src/devtools.c src/vnet.c src/sdd.c src/sdd_thermo.c src/sdd_eeprom.c
   src/rp2350_rv/rv_cpu.c src/rp2350_rv/rv_clint.c
   src/rp2350_rv/rv_membus.c src/rp2350_rv/rv_bootrom.c

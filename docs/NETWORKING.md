@@ -49,11 +49,12 @@ Go gateway (gVisor NAT/DHCP/DNS, rooms) · internet / room LAN ◄────�
 | vnet mesh | `-net -net-peer <sock>` | Rootless instance meshing, no gateway. |
 | Gateway (WiFi) | `-wifi -nodhcp -net -net-peer <sock>` + `gateway_bridge.py` | Real DHCP/DNS/NAT/room LAN via Go gateway. `-nodhcp` disables the fake server so DHCP flows through. |
 | Gateway (Ethernet) | `-board pico-eth -net -net-peer <sock>` + `gateway_bridge.py` | SAME gateway/room/DHCP as WiFi via MACRAW socket 0. No `-wifi`, no `-nodhcp` needed (W5500 has no fake server). |
+| Gateway (Ethernet W6300) | `-board pico-w6300 -net -net-peer <sock>` + `gateway_bridge.py` | SAME gateway/room/DHCP via W6300 MACRAW socket 0 (QSPI-single, CIDR2 + unlock + Sn_MR=0x07; CSn=16/RSTn=22/INTn=15). Distinct guest MACs (`...:63/64/65`) so both chips share one room. |
 | Gateway (WiFi+eth) | WiFi flags + `-board pico-eth -net -net-peer <sock>`, same `--room` | One room serves both NICs; distinct MACs per interface (use `-mac` for WiFi, SHAR for eth). |
 | Per-instance MAC | `-mac DE:AD:BE:EF:00:0X` | Required: distinct MACs per room member. |
 | Isolate eth (debug) | `-no-eth-gw` | Keep MACRAW off the shared bus. |
 
-## Ethernet (W5500 MACRAW) support matrix
+## Ethernet (W5500/W6300 MACRAW) support matrix
 
 Guest firmware picks the mode per socket: socket 0 in `MR_MACRAW`
 joins the shared vnet bus (gateway path); sockets 1–7 in TCP/UDP keep
@@ -71,9 +72,10 @@ the classic offload behavior (host-stack or proxy sockets).
 | TCP/UDP offload (sock 1–7) | ✅ (unchanged) | Classic path: native host sockets (`-net-live`), WASM proxy pump (`net_proxy.py /w5500`). No gateway DHCP/rooms on this path by design. |
 | WASM browser path | ✅ | MACRAW SEND → `vnet_ws_mirror` → `picoemu_eth_pop_tx` → gateway WS; gateway → `picoemu_eth_push_rx` → vnet → MACRAW RX. `Ethernet via gateway` checkbox (default on) + `picoemu_w5500_gw_enable()`. |
 | Node path | ✅ | Same WS uplink via `cli.js --gateway`; MACRAW frames flow without `--board-live` (no proxy sockets needed). |
-| RP2350 (M33/RV32) | ✅ | RP2350 SPI bases route to the same instances (`spi_match` RP2350-aware); `pico-eth2` alias; VERSIONR-via-`0x40080000` test green. |
-| INTn on RECV | ✅ | Socket IR → `w5500_board_refresh_int()` → GPIO21 active-low; W1C clear deasserts. |
+| RP2350 (M33/RV32) | ✅ | RP2350 SPI bases route to the same instances (`spi_match` RP2350-aware); `pico-eth2` alias; VERSIONR-via-`0x40080000` test green. W6300: `pico-w6300-2` alias; CIDR2-via-`0x40080000` test green. |
+| INTn on RECV | ✅ | Socket IR → `w5500_board_refresh_int()` → GPIO21 active-low; W1C clear deasserts. W6300: same via `w6300_board_refresh_int()` → GPIO15 (W1C via `Sn_IRCLR`). |
 | In-tree DHCP guest (M0+/M33/RV32) | ✅ | `test-firmware/gen_eth_dhcp.py` → `eth_dhcp.S`/`eth_dhcp_rv32.S` → `web/eth_dhcp{,_pico2,_rv32}.uf2`; full DORA (`DISCOVER→OFFER→REQUEST→ACK`, `ETH DONE`) green on all three via `test-firmware/dhcp_peer_test.py` (per-arch MAC/XID, `.2/.1` pool). |
+| In-tree DHCP guest W6300 (M0+/M33/RV32) | ✅ | `test-firmware/gen_eth_dhcp6300.py` → `eth_dhcp6300.S`/`eth_dhcp6300_rv32.S` → `web/eth_dhcp6300{,_pico2,_rv32}.uf2`; full DORA green on all three via `dhcp_peer_test.py` (MAC `...:63/64/65`, XID `D0/E0/F0...`; QSPI-single + CIDR2 + CHIP/NET unlock + SYCR0 reset + Sn_MR=0x07). |
 | In-tree HTTP guest (M0+/M33/RV32) | ✅ | `test-firmware/gen_eth_http.py` → `eth_http.S`/`eth_http_rv32.S` → `web/eth_http{,_pico2,_rv32}.uf2`; DORA + ARP→SYN→ACK→GET→200 `hello-eth`→ACK→FIN→`ETH HTTP-DONE` green on all three via `test-firmware/http_peer_test.py` (static TX blobs, per-arch MAC/sport/cseq, server SSEQ `0x00100000`). |
 | Arduino ioLibrary guest (M0+ ✅, M33 ✅) | ✅ both arches | `test-firmware/arduino/ethdhcp/ethdhcp.ino` (`Wiznet5500lwIP`, `rp2040:rp2040:wiznet_5500_evb_pico`): full DORA green since the RX cursor-latch fix (first DATA byte of each CS frame latched the stale base 0, corrupting nonzero-address RX bursts: OFFER head at RX_RD=0 worked, ACK head at RX_RD=0x0158 read hi=0x00 not 0x01, len 342→86, ACK desynced — latch now happens BEFORE the read; peer `ALL DHCP CHECKS PASSED` + guest `conn=1 ip=192.168.4.2`). **M33 green since 2026-09-22** (`test-firmware/arduino/ethdhcp_m33/ethdhcp_m33.ino`, `Serial1`/UART0 because USB-CDC is unmodeled on M33, `rp2040:rp2040:wiznet_5500_evb_pico2`, `-board pico-eth2 -arch m33`): full DORA — peer `ALL DHCP CHECKS PASSED` (DISCOVER `chaddr=020123520001` → REQUEST same xid) + guest `conn=1 ip=192.168.4.2`. Root-caused two stacked RP2350-map-vs-RP2040-map mismatches (`6b698f7`): (1) RP2350 `IO_BANK0` base `0x40028000` unrouted (writes fell into the `PLL_SYS` clocks stub, GPIO21 never armed); (2) RP2350 IRQ map (IO_IRQ_BANK0 13→21 etc.) — NVIC widened to 64 IRQs with `nvic_rp2350_irq()` translation; the ISR had pended at wrong vector 29 (no handler → bkpt) so the OFFER was never polled. |
 | ARM BLE guest (M0+/M33) | ✅ | `test-firmware/gen_ble_arm.py` → `ble_adv.S` → `web/ble_adv{,_pico2}.uf2` (PIO0 SM0): BT bring-up + ADV + scan, prints `BT-CTRL 01000100` / `RAM-BASE 001C0000` / `HOST-READY` / `RESET-OK` / `ADV-OK` / `LISTEN` on both cores, sweep-locked via `run_ble`. Fixed three stacked guest bugs: broken `ba_bswap` middle bytes, missing dummy swap rounds, `.word reset_handler + 1` double Thumb bit. |

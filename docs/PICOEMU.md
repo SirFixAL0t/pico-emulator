@@ -123,7 +123,9 @@ RP2350), flash `0x10000000`.
 
 `picoemu_net_enable`, `picoemu_sdd_add`, `picoemu_board_eth(on, live, spi)`
 (pico-eth board: WIZnet W5500-EVB-Pico on SPI0, CSn=GPIO17, RSTn=GPIO20,
-INTn=GPIO21; off by default), `picoemu_eth_push_rx`,
+INTn=GPIO21; off by default), `picoemu_board_eth6300(on, live, spi)`
+(pico-w6300 board: WIZnet W6300-EVB-Pico on SPI0 QSPI-single, CSn=GPIO16,
+RSTn=GPIO22, INTn=GPIO15; off by default), `picoemu_eth_push_rx`,
 `picoemu_eth_pop_tx`, `picoemu_eth_set_uplink` (raw-ETH gateway path,
 see `docs/GATEWAY.md`), `picoemu_w5500_push_rx/status` (targets the board
 when it is on, else the legacy `-net-live` device), `picoemu_ws_send_w5500` (WebSocket
@@ -193,26 +195,32 @@ but has no guest driver in-box: end-to-end WiFi needs Pico-SDK-based
 firmware (provides the CYW43 stack) plus a live backend
 (`-net-live` native, proxy in browser).
 
-Wired Ethernet (W5500) has three faces: the legacy floating `-net-live`
-device (no board pins), the `pico-eth` board variant
-(`-board pico-eth` native, Board row in the browser bench,
-`--board pico-eth` in `web/cli.js`): W5500 on SPI0 with CSn=GPIO17,
-RSTn=GPIO20, INTn=GPIO21, VERSIONR `0x04`, W1C socket IR, computed SIR;
+Wired Ethernet (W5500 + W6300) has three faces per chip: the legacy floating
+`-net-live` / `-net-live6300` device (no board pins), the `pico-eth` /
+`pico-w6300` board variant (`-board pico-eth|pico-w6300` native, Board row
+in the browser bench, `--board pico-eth|pico-w6300` in `web/cli.js`):
+W5500 on SPI0 with CSn=GPIO17, RSTn=GPIO20, INTn=GPIO21, VERSIONR `0x04`,
+W1C socket IR, computed SIR; W6300 on SPI0 QSPI-single with CSn=GPIO16,
+RSTn=GPIO22, INTn=GPIO15, CIDR `0x61/0x00/0x11`, CHIP/NET/PHY lock groups,
+PHYSR opposite-polarity link bits, `Sn_IRCLR` W1C;
 and the **MACRAW gateway path** (socket 0 in `MR_MACRAW` joins the shared
 vnet bus — same room/DHCP/NAT as CYW43 WiFi, see `docs/NETWORKING.md`).
 `-board-live` dials real host sockets; the browser proxy path is shared
 with the legacy device. Off by default (one flag test, zero cost).
 `pico-eth2` is an alias for the RP2350-based WIZnet W5500-EVB-Pico2:
 identical wiring/pins (only the SoC differs), so one model serves both.
-On M33/RV32 the RP2350 SPI bases (`0x40080000`/`0x40088000`) route to
-the same SPI instances (`spi_match` is RP2350-aware, same as UART).
+`pico-w6300` / `pico-w6300-2` are the W6300-EVB-Pico/Pico2 pair (same
+alias pattern). On M33/RV32 the RP2350 SPI bases (`0x40080000`/`0x40088000`)
+route to the same SPI instances (`spi_match` is RP2350-aware, same as UART).
 
 In-tree guests need no toolchain: `web/eth_dhcp{,_pico2,_rv32}.uf2`
 (DORA → `ETH DONE`) and `web/eth_http{,_pico2,_rv32}.uf2` (DORA + ARP →
 SYN → `GET /` → `200 hello-eth` → FIN → `ETH HTTP-DONE`), verified via
 `test-firmware/dhcp_peer_test.py` / `http_peer_test.py` (per-arch
 MAC/XID/sport, server SSEQ `0x00100000`). Sweep asserts the pre-DORA
-markers (`ETH MACRAW-OK`) offline; Arduino-CLI `Wiznet5500lwIP` DHCP
+markers (`ETH MACRAW-OK`) offline; W6300 in-tree guests
+`web/eth_dhcp6300{,_pico2,_rv32}.uf2` (same DORA, QSPI-single + CIDR2 +
+unlock + `Sn_MR=0x07`) sweep-locked the same way; Arduino-CLI `Wiznet5500lwIP` DHCP
 (`test-firmware/arduino/ethdhcp/`) is the real-driver prove-out
 (M0+/M33 in-tree DORA green via live peer; Arduino E2E post-OFFER stall is
 guest-side RX pump, under test — see CHANGELOG). In-tree ARM `ble_adv{,_pico2}.uf2`

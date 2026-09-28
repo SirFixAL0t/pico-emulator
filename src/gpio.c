@@ -13,6 +13,8 @@
  * the board is off: one integer flag test in w5500_board_gpio_write. */
 void w5500_board_gpio_write(uint32_t pin, uint32_t value);
 int w5500_board_enabled(void);
+void w6300_board_gpio_write(uint32_t pin, uint32_t value);
+int w6300_board_enabled(void);
 
 /* Helper: trace GPIO changes via VCD when gpio_out is modified */
 static inline void gpio_trace_changes(uint32_t old_val, uint32_t new_val) {
@@ -473,6 +475,11 @@ void gpio_write32(uint32_t addr, uint32_t val) {
             w5500_board_gpio_write(17, (eff >> 17) & 1u);
             w5500_board_gpio_write(20, (eff >> 20) & 1u);
         }
+        if (w6300_board_enabled()) {
+            uint32_t eff = gpio_effective_pins();
+            w6300_board_gpio_write(16, (eff >> 16) & 1u);
+            w6300_board_gpio_write(22, (eff >> 22) & 1u);
+        }
         return;
     }
 
@@ -651,6 +658,12 @@ void gpio_set_pin(uint8_t pin, uint8_t value) {
             uint32_t eff = gpio_effective_pins();
             w5500_board_gpio_write(17, (eff >> 17) & 1u);
             w5500_board_gpio_write(20, (eff >> 20) & 1u);
+        }
+        /* pico-w6300 CSn/RSTn watch (CSn=16/RSTn=22). */
+        if ((pin == 16 || pin == 22) && w6300_board_enabled()) {
+            uint32_t eff = gpio_effective_pins();
+            w6300_board_gpio_write(16, (eff >> 16) & 1u);
+            w6300_board_gpio_write(22, (eff >> 22) & 1u);
         }
     } else {
         uint32_t b = (uint32_t)pin - 32u;

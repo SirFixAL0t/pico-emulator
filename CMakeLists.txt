@@ -53,6 +53,7 @@ set(EMU_SOURCES
     src/fatfs.c
     src/fuse_mount.c
     src/w5500.c
+    src/w6300.c
     src/bme280.c
     src/corepool.c
     src/cyw43.c

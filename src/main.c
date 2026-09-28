@@ -63,6 +63,7 @@ typedef enum { ARCH_M0PLUS, ARCH_RV32, ARCH_M33 } arch_t;
 #include "vnet.h"
 #include "sdd.h"
 #include "w5500.h"
+#include "w6300.h"
 
 
 int any_core_running(void);
@@ -320,6 +321,7 @@ static void reboot_from_watchdog(const char *tap_name,
     /* spi_init cleared the slots; the board keeps its state, storage
      * re-attaches explicitly below (explicit flags win on conflict). */
     w5500_board_reattach();
+    w6300_board_reattach();
     attach_spi_devices(sdcard, sdcard_path, sdcard_spi, emmc_dev, emmc_path, emmc_spi);
 
     /* dual_core_init resets num_active_cores to 1 and clears Core 1 bootrom
@@ -338,6 +340,7 @@ static void reboot_from_watchdog(const char *tap_name,
 static int ff_vnet_enabled = 0;
 static int ff_w5500_live = 0;
 static w5500_t *ff_w5500_dev = NULL;
+static w6300_t *ff_w6300_dev = NULL;
 static void ff_host_poll(void) {
     net_bridge_poll();
     wire_poll();
@@ -351,7 +354,9 @@ static void ff_host_poll(void) {
     cyw43_bt_hci_poll();
     cyw43_ndp_ra_poll();
     if (ff_w5500_live && ff_w5500_dev) w5500_poll(ff_w5500_dev);
+    if (ff_w6300_dev) w6300_poll(ff_w6300_dev);
     w5500_board_poll();  /* no-op unless -board pico-eth */
+    w6300_board_poll();  /* no-op unless -board pico-w6300 */
     /* MicroPython REPL input must also drain during WFE fast-forward:
      * b.active(True) ends in mp_event_wait_indefinite (WFE loop) and
      * never returns to the REPL, so main-loop stdin polls starve and
@@ -431,6 +436,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "  -net                        Create TAP + NAT for internet bridge (auto-sudo)\n");
         fprintf(stderr, "  -net-peer <path>            Mesh with another Pico-emu instance via Unix socket\n");
         fprintf(stderr, "  -net-live                   Enable W5500 live host sockets\n");
+        fprintf(stderr, "  -net-live6300               Enable W6300 live host sockets\n");
         fprintf(stderr, "  -bt-hci <path>              Forward guest HCI to host controller (Bumble/BlueZ) via Unix socket\n");
         fprintf(stderr, "\nBoards (separate SPI hardware, off = zero cost):\n");
         fprintf(stderr, "  -board pico-eth             WIZnet W5500-EVB-Pico (RP2040): W5500 on SPI0\n");
@@ -438,8 +444,13 @@ int main(int argc, char **argv) {
         fprintf(stderr, "                              wiring (SCK18/MOSI19/MISO16, CSn=GPIO17,\n");
         fprintf(stderr, "                              RSTn=GPIO20, INTn=GPIO21); identical model,\n");
         fprintf(stderr, "                              RP2350 SPI bases routed on M33/RV32\n");
+        fprintf(stderr, "  -board pico-w6300           WIZnet W6300-EVB-Pico (RP2040): W6300 QSPI-single on SPI0\n");
+        fprintf(stderr, "  -board pico-w6300-2         WIZnet W6300-EVB-Pico2 (RP2350): same W6300\n");
+        fprintf(stderr, "                              wiring (SCLK17/IO0=18/IO1=19, CSn=GPIO16,\n");
+        fprintf(stderr, "                              RSTn=GPIO22, INTn=GPIO15); RP2350 SPI bases routed\n");
         fprintf(stderr, "  -board-spi <0|1>            SPI bus for the board (default: 0)\n");
         fprintf(stderr, "  -board-live                 Board dials real host TCP/UDP sockets\n");
+        fprintf(stderr, "  -board6300-live             W6300 board dials real host TCP/UDP sockets\n");
         fprintf(stderr, "  -no-eth-gw                  Isolate eth from gateway (debug; default: single gateway)\n");
         fprintf(stderr, "\nSoftware-Defined Devices:\n");
         fprintf(stderr, "  -sdd <type[:opts]>          Attach a software-defined device\n");
@@ -516,9 +527,12 @@ int main(int argc, char **argv) {
     static sdcard_t sdcard;
     static emmc_t emmc_dev;
     static w5500_t w5500_dev;
+    static w6300_t w6300_dev;
     int vnet_enabled = 0;
     int w5500_live = 0;
+    int w6300_live = 0;
     int board_eth = 0;        /* -board pico-eth requested */
+    int board_w6300 = 0;      /* -board pico-w6300 requested */
     int board_eth_spi = 0;    /* SPI bus for the pico-eth board */
     int board_eth_live = 0;   /* live host sockets for the board */
     int sdd_count = 0;
@@ -699,18 +713,24 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "-net-live") == 0) {
             vnet_enabled = 1;
             w5500_live = 1;
+        } else if (strcmp(argv[i], "-net-live6300") == 0) {
+            vnet_enabled = 1;
+            w6300_live = 1;
         } else if (strcmp(argv[i], "-board") == 0) {
             if (i + 1 < argc) {
                 i++;
                 if (strcmp(argv[i], "pico-eth") == 0 ||
                     strcmp(argv[i], "pico-eth2") == 0) {
                     board_eth = 1;
+                } else if (strcmp(argv[i], "pico-w6300") == 0 ||
+                           strcmp(argv[i], "pico-w6300-2") == 0) {
+                    board_w6300 = 1;
                 } else {
-                    fprintf(stderr, "[Error] Unknown board: %s (use pico-eth|pico-eth2)\n", argv[i]);
+                    fprintf(stderr, "[Error] Unknown board: %s (use pico-eth|pico-eth2|pico-w6300|pico-w6300-2)\n", argv[i]);
                     return EXIT_FAILURE;
                 }
             } else {
-                fprintf(stderr, "[Error] -board needs a name (pico-eth|pico-eth2)\n");
+                fprintf(stderr, "[Error] -board needs a name (pico-eth|pico-eth2|pico-w6300|pico-w6300-2)\n");
                 return EXIT_FAILURE;
             }
         } else if (strcmp(argv[i], "-board-spi") == 0) {
@@ -724,8 +744,12 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "-board-live") == 0) {
             board_eth_live = 1;
             board_eth = 1;  /* implies the board */
+        } else if (strcmp(argv[i], "-board6300-live") == 0) {
+            board_eth_live = 1;
+            board_w6300 = 1;  /* implies the w6300 board */
         } else if (strcmp(argv[i], "-no-eth-gw") == 0) {
             w5500_gw_enable_set(0);  /* isolate eth from gateway (debug) */
+            w6300_gw_enable_set(0);
         } else if (strcmp(argv[i], "-sdd") == 0) {
             if (i + 1 < argc) {
                 sdd_count++;
@@ -1113,6 +1137,12 @@ skip_fuse:
         w5500_set_live(&w5500_dev, 1);
     }
 
+    /* W6300 live networking (legacy floating device, no board pins) */
+    if (w6300_live) {
+        w6300_init(&w6300_dev);
+        w6300_set_live(&w6300_dev, 1);
+    }
+
     /* pico-eth board: separate SPI board variant. Must attach BEFORE the
      * SD/eMMC devices so explicit storage flags win the SPI slot on
      * conflict (documented, deterministic). */
@@ -1120,6 +1150,13 @@ skip_fuse:
         w5500_board_attach(board_eth_spi, board_eth_live || w5500_live);
         fprintf(stderr, "[Init] pico-eth board on SPI%d%s\n", board_eth_spi,
                 (board_eth_live || w5500_live) ? " (live)" : " (stub)");
+    }
+
+    /* pico-w6300 board (W6300-EVB-Pico): same slot rules as pico-eth. */
+    if (board_w6300) {
+        w6300_board_attach(board_eth_spi, board_eth_live || w6300_live);
+        fprintf(stderr, "[Init] pico-w6300 board on SPI%d%s\n", board_eth_spi,
+                (board_eth_live || w6300_live) ? " (live)" : " (stub)");
     }
 
     /* Software-Defined Devices: second pass to create from -sdd arguments */
@@ -1423,7 +1460,9 @@ skip_fuse:
     cyw43_bt_hci_poll();
     cyw43_ndp_ra_poll();
                 if (w5500_live) w5500_poll(&w5500_dev);
+                if (w6300_live) w6300_poll(&w6300_dev);
                 w5500_board_poll();  /* no-op unless -board pico-eth */
+                w6300_board_poll();  /* no-op unless -board pico-w6300 */
             }
 
             /* Timeout and semihosting */
@@ -1484,7 +1523,9 @@ skip_fuse:
     cyw43_bt_hci_bridge_poll();
     cyw43_ndp_ra_poll();
             if (w5500_live) w5500_poll(&w5500_dev);
+            if (w6300_live) w6300_poll(&w6300_dev);
             w5500_board_poll();  /* no-op unless -board pico-eth */
+            w6300_board_poll();  /* no-op unless -board pico-w6300 */
             corepool_unlock();
 
             /* Periodic storage flush */
@@ -1546,6 +1587,7 @@ skip_fuse:
         ff_vnet_enabled = vnet_enabled;
         ff_w5500_live = w5500_live;
         ff_w5500_dev = &w5500_dev;
+        ff_w6300_dev = w6300_live ? &w6300_dev : NULL;
         picoemu_ff_poll_hook = ff_host_poll;
         while (any_core_running()) {
 
@@ -1598,7 +1640,9 @@ skip_fuse:
     cyw43_bt_hci_bridge_poll();
     cyw43_ndp_ra_poll();
                 if (w5500_live) w5500_poll(&w5500_dev);
+                if (w6300_live) w6300_poll(&w6300_dev);
                 w5500_board_poll();  /* no-op unless -board pico-eth */
+                w6300_board_poll();  /* no-op unless -board pico-w6300 */
             }
 
             /* Flush dirty storage devices every ~1M steps */
@@ -1673,6 +1717,7 @@ skip_fuse:
     cyw43_tap_close();
     if (vnet_enabled) vnet_cleanup();
     w5500_board_detach();
+    w6300_board_detach();
     sdd_cleanup();
 
     /* Unmount FUSE filesystem */

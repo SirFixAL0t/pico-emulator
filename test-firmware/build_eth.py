@@ -260,13 +260,19 @@ def main():
                     help="regenerate eth_http.S + eth_http_rv32.S first")
     ap.add_argument("--gen-ble", action="store_true",
                     help="regenerate ble_adv.S first")
+    ap.add_argument("--gen-6300", action="store_true",
+                    help="regenerate eth_dhcp6300.S + eth_dhcp6300_rv32.S first")
     ap.add_argument("which", nargs="*", default=["all"],
-                    help="m0, m33, rv32, all, http-m0, http-m33, http-rv32, http-all, ble-m0, ble-m33, ble-all")
+                    help="m0, m33, rv32, all, w6300-m0, w6300-m33, w6300-rv32, w6300-all, http-m0, http-m33, http-rv32, http-all, ble-m0, ble-m33, ble-all")
     args = ap.parse_args()
     if args.gen:
         sys.path.insert(0, D)
         import gen_eth_dhcp
         gen_eth_dhcp.main()
+    if args.gen_6300:
+        sys.path.insert(0, D)
+        import gen_eth_dhcp6300
+        gen_eth_dhcp6300.main()
     if args.gen_http:
         sys.path.insert(0, D)
         import gen_eth_http
@@ -291,6 +297,22 @@ def main():
     if "rv32" in want:
         rv_build(os.path.join(D, "eth_dhcp_rv32.S"),
                  os.path.join(ROOT, "web", "eth_dhcp_rv32.uf2"))
+    if "w6300-m0" in want:
+        arm_build(os.path.join(D, "eth_dhcp6300.S"), 0xE48BFF56,
+                  os.path.join(ROOT, "web", "eth_dhcp6300.uf2"))
+    if "w6300-m33" in want:
+        arm_build(os.path.join(D, "eth_dhcp6300.S"), 0xE48BFF59,
+                  os.path.join(ROOT, "web", "eth_dhcp6300_pico2.uf2"))
+    if "w6300-rv32" in want:
+        rv_build(os.path.join(D, "eth_dhcp6300_rv32.S"),
+                 os.path.join(ROOT, "web", "eth_dhcp6300_rv32.uf2"))
+    if "w6300-all" in want:
+        arm_build(os.path.join(D, "eth_dhcp6300.S"), 0xE48BFF56,
+                  os.path.join(ROOT, "web", "eth_dhcp6300.uf2"))
+        arm_build(os.path.join(D, "eth_dhcp6300.S"), 0xE48BFF59,
+                  os.path.join(ROOT, "web", "eth_dhcp6300_pico2.uf2"))
+        rv_build(os.path.join(D, "eth_dhcp6300_rv32.S"),
+                 os.path.join(ROOT, "web", "eth_dhcp6300_rv32.uf2"))
     if "http-m0" in want:
         arm_build(os.path.join(D, "eth_http.S"), 0xE48BFF56,
                   os.path.join(ROOT, "web", "eth_http.uf2"))

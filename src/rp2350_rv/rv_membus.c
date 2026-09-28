@@ -26,6 +26,8 @@
  * w5500.c is always linked (native, tests, WASM). */
 void w5500_board_gpio_write(uint32_t pin, uint32_t value);
 int w5500_board_enabled(void);
+void w6300_board_gpio_write(uint32_t pin, uint32_t value);
+int w6300_board_enabled(void);
 
 #define RV_SHARED_RP2040_SYSCFG_BASE     0x40004000u
 #define RV_SHARED_RP2040_CLOCKS_BASE     0x40008000u
@@ -449,6 +451,14 @@ void rv_mem_write32(rv_membus_state_t *bus, uint32_t addr, uint32_t val) {
                 w5500_board_gpio_write(20, (eff >> 20) & 1u);
                 spi_device_cs(0, cs ? 0 : 1);
             }
+            if ((offset == 0x14 || offset == 0x18 || offset == 0x24) &&
+                w6300_board_enabled()) {
+                uint32_t eff = gpio_effective_pins();
+                uint32_t cs = (eff >> 16) & 1u;
+                w6300_board_gpio_write(16, cs);
+                w6300_board_gpio_write(22, (eff >> 22) & 1u);
+                spi_device_cs(0, cs ? 0 : 1);
+            }
             return;
         }
         /* Fall through to RP2040 SIO (gpio_write32 carries the
@@ -468,6 +478,14 @@ void rv_mem_write32(rv_membus_state_t *bus, uint32_t addr, uint32_t val) {
             uint32_t cs = (eff >> 17) & 1u;
             w5500_board_gpio_write(17, cs);
             w5500_board_gpio_write(20, (eff >> 20) & 1u);
+            spi_device_cs(0, cs ? 0 : 1);
+        }
+        if ((offset == 0x14 || offset == 0x18 || offset == 0x24) &&
+            w6300_board_enabled()) {
+            uint32_t eff = gpio_effective_pins();
+            uint32_t cs = (eff >> 16) & 1u;
+            w6300_board_gpio_write(16, cs);
+            w6300_board_gpio_write(22, (eff >> 22) & 1u);
             spi_device_cs(0, cs ? 0 : 1);
         }
     } else

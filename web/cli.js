@@ -4,8 +4,8 @@
 //        [--steps 2000000] [--timeout 30] [--cores 2] [--wifi]
 //        [--gateway ws://localhost:5090/api/network-gateway] [--room myroom]
 //        [--ble-hci ws://localhost:5090/api/ble-gateway]
-//        [--board pico-eth|pico-eth2] [--board-spi 0|1] [--board-live]
-//        [--net-w5500 ws://localhost:8765/w5500]  (live W5500 proxy pump)
+//        [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live]
+//        [--net-w5500 ws://localhost:8765/w5500]  (live W5500/W6300 proxy pump)
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -22,7 +22,7 @@ const opt = (name, def) => {
 };
 const file = args.find((a) => !a.startsWith('--'));
 if (!file) {
-  console.error('Usage: picoemu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125] [--steps 2000000] [--timeout 30] [--cores 2] [--wifi] [--gateway URL] [--room ID] [--ble-hci URL] [--board pico-eth|pico-eth2] [--board-spi 0|1] [--board-live] [--net-w5500 URL]');
+  console.error('Usage: picoemu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125] [--steps 2000000] [--timeout 30] [--cores 2] [--wifi] [--gateway URL] [--room ID] [--ble-hci URL] [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live] [--net-w5500 URL]');
   process.exit(2);
 }
 const u8 = new Uint8Array(fs.readFileSync(file));
@@ -61,20 +61,25 @@ mod._picoemu_reset();
   try { if (opt('--ble-hci', '') !== '') mod._picoemu_bt_hci_enable(1); } catch {}
 }
 
-// pico-eth/pico-eth2 board (WIZnet W5500-EVB-Pico/Pico2): separate SPI
-// board, off by default. --board-live mirrors SEND to the WS proxy like
-// -net-live. Pico2 wiring is identical; only the SoC differs.
+// pico-eth/pico-eth2 (W5500) and pico-w6300/pico-w6300-2 (W6300) boards:
+// separate SPI boards, off by default. --board-live mirrors SEND to the
+// WS proxy like -net-live. Pico2 wiring is identical; only the SoC differs.
+// W6300 rides QSPI-single on the same PL022 path (CSn=16/RSTn=22/INTn=15).
 {
   const board = opt('--board', '');
+  const is6300 = board === 'pico-w6300' || board === 'pico-w6300-2';
   if (board) {
-    if (board !== 'pico-eth' && board !== 'pico-eth2') { console.error(`picoemu: unknown board '${board}' (use pico-eth|pico-eth2)`); process.exit(2); }
+    if (board !== 'pico-eth' && board !== 'pico-eth2' && !is6300) { console.error(`picoemu: unknown board '${board}' (use pico-eth|pico-eth2|pico-w6300|pico-w6300-2)`); process.exit(2); }
     let spi = parseInt(opt('--board-spi', '0'), 10);
     if (!(spi === 0 || spi === 1)) { console.error('picoemu: --board-spi must be 0 or 1'); process.exit(2); }
     const live = args.includes('--board-live') ? 1 : 0;
-    try { mod._picoemu_board_eth(1, live, spi); } catch {}
-    // Live needs the proxy pump outlet too (same as --net-w5500): without
-    // an explicit URL, board-live defaults to the local proxy /w5500 path
-    // so CONNECT/LISTEN/CLOSE/SEND actually reach net_proxy.py.
+    try {
+      if (is6300) mod._picoemu_board_eth6300(1, live, spi);
+      else mod._picoemu_board_eth(1, live, spi);
+    } catch {}
+    // The proxy protocol is chip-agnostic (same CONNECT/LISTEN/CLOSE/SEND
+    // framing), so both boards share the /w5500 path; route RX by board.
+    try { opt._isW6300 = is6300 ? 1 : 0; } catch {}
     if (live && !opt('--net-w5500', '') && !(opt('--net-url', '') || opt('--net', ''))) {
       try { opt._autoW5500 = 'ws://localhost:8765/w5500'; } catch {}
     }
@@ -135,21 +140,36 @@ let w5500ws = null;
       const arr = e.data instanceof ArrayBuffer ? new Uint8Array(e.data)
         : typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(0);
       if (!arr.length) return;
+      // Route to the W6300 when a pico-w6300 board is selected (same
+      // 8-socket model and proxy framing; chip-agnostic proxy).
+      const is6300 = (() => { try { return opt._isW6300 ? 1 : 0; } catch { return 0; } })();
+      const pushRx = (sock, p, len) => {
+        try {
+          if (is6300) mod._picoemu_w6300_push_rx(sock, p, len);
+          else mod._picoemu_w5500_push_rx(sock, p, len);
+        } catch {}
+      };
+      const pushStatus = (sock, code) => {
+        try {
+          if (is6300) mod._picoemu_w6300_push_status(sock, code);
+          else mod._picoemu_w5500_push_status(sock, code);
+        } catch {}
+      };
       if (arr[0] === 0x53 && arr.length >= 4) {
-        try { mod._picoemu_w5500_push_status(arr[1], arr[3]); } catch {}
+        pushStatus(arr[1], arr[3]);
       } else if (arr[0] < 8 && arr.length >= 3) {
         const ln = arr[1] | (arr[2] << 8);
         const payload = arr.slice(3, 3 + ln);
         const p = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, p);
-        try { mod._picoemu_w5500_push_rx(arr[0], p, payload.length); } catch {}
+        pushRx(arr[0], p, payload.length);
         mod._free(p);
       } else if (arr[0] === 0x57 && arr.length >= 4) {
         const sock = arr[1], ln = arr[2] | (arr[3] << 8);
         const payload = arr.slice(4, 4 + ln);
         const p = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, p);
-        try { mod._picoemu_w5500_push_rx(sock, p, payload.length); } catch {}
+        pushRx(sock, p, payload.length);
         mod._free(p);
       }
     };
@@ -199,20 +219,25 @@ while (done < budget && (Date.now() - t0) / 1000 < timeoutS) {
       mod._free(p);
     }
   }
-  // W5500 proxy pump (Node): forward queued CONNECT/LISTEN/CLOSE/SEND to
-  // the --net-w5500 proxy socket. Same shared net_proxy as the browser Net
-  // panel; NOT the OpenHW gateway (W5500 = socket-level TCP/UDP, not ETH).
+  // W5500/W6300 proxy pump (Node): forward queued CONNECT/LISTEN/CLOSE/SEND
+  // to the --net-w5500 proxy socket. Same shared net_proxy as the browser
+  // Net panel; NOT the OpenHW gateway (socket-level TCP/UDP, not ETH).
+  // Both chips queue identical framing; pump each queue in turn.
   if (w5500ws && w5500ws.readyState === 1) {
-    let budget = 0;
-    try { budget = mod._picoemu_w5500_tx_len(); } catch { budget = 0; }
-    if (budget > 0) {
-      const n = Math.min(budget, 8192);
-      const p = mod._malloc(n);
-      let got = 0;
-      try { got = mod._picoemu_w5500_pop_tx(p, n); } catch { got = 0; }
-      if (got > 0) { try { w5500ws.send(mod.HEAPU8.slice(p, p + got)); } catch {} }
-      mod._free(p);
-    }
+    const pumpOne = (lenFn, popFn) => {
+      let budget = 0;
+      try { budget = mod[lenFn](); } catch { budget = 0; }
+      if (budget > 0) {
+        const n = Math.min(budget, 8192);
+        const p = mod._malloc(n);
+        let got = 0;
+        try { got = mod[popFn](p, n); } catch { got = 0; }
+        if (got > 0) { try { w5500ws.send(mod.HEAPU8.slice(p, p + got)); } catch {} }
+        mod._free(p);
+      }
+    };
+    try { pumpOne('_picoemu_w5500_tx_len', '_picoemu_w5500_pop_tx'); } catch {}
+    try { pumpOne('_picoemu_w6300_tx_len', '_picoemu_w6300_pop_tx'); } catch {}
   }
   let s = '', ch, n = 0;
   while ((ch = mod._picoemu_read_uart(0)) !== -1 && n++ < 65536) s += String.fromCharCode(ch);

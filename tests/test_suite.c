@@ -55,6 +55,7 @@
 #include "cyw43.h"
 #include "sdd.h"
 #include "w5500.h"
+#include "w6300.h"
 #include "devtools.h"
 
 /* ========================================================================
@@ -6542,6 +6543,311 @@ TEST(test_w5500_macraw_gateway_dhcp_path) {
     PASS();
 }
 
+/* ========================================================================
+ * W6300 Ethernet Controller Tests
+ *
+ * QSPI-single frame per CS: opcode | addr_hi | addr_lo | dummy | data.
+ * Helpers below drive that 5-byte header through the direct SPI path.
+ * ======================================================================== */
+
+/* Helper: full W6300 register write frame (QSPI single mode). */
+static void test_w6300_reg_write(w6300_t *dev, uint8_t blk,
+                                 uint16_t addr, uint8_t val) {
+    w6300_spi_cs(dev, 1);
+    w6300_spi_xfer(dev, W6300_OPCODE(blk, 1));
+    w6300_spi_xfer(dev, (addr >> 8) & 0xFF);
+    w6300_spi_xfer(dev, addr & 0xFF);
+    w6300_spi_xfer(dev, 0x00);  /* dummy */
+    w6300_spi_xfer(dev, val);
+    w6300_spi_cs(dev, 0);
+}
+
+/* Helper: full W6300 register read frame. */
+static uint8_t test_w6300_reg_read(w6300_t *dev, uint8_t blk, uint16_t addr) {
+    w6300_spi_cs(dev, 1);
+    w6300_spi_xfer(dev, W6300_OPCODE(blk, 0));
+    w6300_spi_xfer(dev, (addr >> 8) & 0xFF);
+    w6300_spi_xfer(dev, addr & 0xFF);
+    w6300_spi_xfer(dev, 0x00);  /* dummy */
+    uint8_t v = w6300_spi_xfer(dev, 0xFF);
+    w6300_spi_cs(dev, 0);
+    return v;
+}
+
+TEST(test_w6300_cidr_version) {
+    w6300_t dev;
+    w6300_init(&dev);
+    ASSERT_EQ(0x61, (int)test_w6300_reg_read(&dev, 0, W6300_CIDR0), "CIDR0 should be 0x61");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_CIDR1), "CIDR1 should be 0x00");
+    ASSERT_EQ(0x11, (int)test_w6300_reg_read(&dev, 0, W6300_CIDR2), "CIDR2 should be 0x11");
+    PASS();
+}
+
+TEST(test_w6300_locks_boot_locked) {
+    w6300_t dev;
+    w6300_init(&dev);
+    uint8_t sysr = test_w6300_reg_read(&dev, 0, W6300_SYSR);
+    ASSERT_TRUE(sysr & W6300_SYSR_CHPL, "CHPL should be locked at reset");
+    ASSERT_TRUE(sysr & W6300_SYSR_NETL, "NETL should be locked at reset");
+    ASSERT_TRUE(sysr & W6300_SYSR_PHYL, "PHYL should be locked at reset");
+    ASSERT_TRUE(sysr & W6300_SYSR_SPI, "SPI bit should read 1");
+    test_w6300_reg_write(&dev, 0, W6300_SHAR0, 0xAA);
+    ASSERT_EQ(0x02, (int)test_w6300_reg_read(&dev, 0, W6300_SHAR0), "SHAR locked at reset");
+    test_w6300_reg_write(&dev, 0, W6300_NETLCKR, W6300_NET_UNLOCK);
+    sysr = test_w6300_reg_read(&dev, 0, W6300_SYSR);
+    ASSERT_EQ(0, (int)(sysr & W6300_SYSR_NETL), "NETL should clear after unlock");
+    test_w6300_reg_write(&dev, 0, W6300_SHAR0, 0xAA);
+    ASSERT_EQ(0xAA, (int)test_w6300_reg_read(&dev, 0, W6300_SHAR0), "SHAR writable after unlock");
+    test_w6300_reg_write(&dev, 0, W6300_NETLCKR, 0x00);
+    test_w6300_reg_write(&dev, 0, W6300_SHAR0 + 1, 0xBB);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_SHAR0 + 1), "SHAR locked again");
+    test_w6300_reg_write(&dev, 0, W6300_CHPLCKR, W6300_CHIP_UNLOCK);
+    sysr = test_w6300_reg_read(&dev, 0, W6300_SYSR);
+    ASSERT_EQ(0, (int)(sysr & W6300_SYSR_CHPL), "CHPL should clear after unlock");
+    test_w6300_reg_write(&dev, 0, W6300_SYCR0, W6300_SYCR0_RST);
+    sysr = test_w6300_reg_read(&dev, 0, W6300_SYSR);
+    ASSERT_TRUE(sysr & W6300_SYSR_CHPL, "CHPL locked again after reset");
+    ASSERT_EQ(0x61, (int)test_w6300_reg_read(&dev, 0, W6300_CIDR0), "CIDR0 survives reset");
+    PASS();
+}
+
+TEST(test_w6300_physr_polarity) {
+    w6300_t dev;
+    w6300_init(&dev);
+    ASSERT_EQ(0x01, (int)test_w6300_reg_read(&dev, 0, W6300_PHYSR), "PHYSR link-up 100M full");
+    ASSERT_EQ(0x40, (int)test_w6300_reg_read(&dev, 0, W6300_PHYCR1), "PHYCR1 reset 0x40");
+    PASS();
+}
+
+TEST(test_w6300_tcp_open_close) {
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_INIT, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "TCP OPEN should reach INIT");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CLOSE);
+    ASSERT_EQ(W6300_SOCK_CLOSED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "CLOSE (0x10) should reach CLOSED");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_INIT, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "re-OPEN for stale-value probe");
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(1, 1));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, W6300_Sn_CR);
+    w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x08);
+    w6300_spi_cs(&dev, 0);
+    ASSERT_EQ(W6300_SOCK_INIT, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "stale 0x08 must not close");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_CR),
+              "unknown command still auto-clears");
+    PASS();
+}
+
+TEST(test_w6300_udp_open) {
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_UDP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_UDP, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "UDP OPEN should reach UDP");
+    PASS();
+}
+
+TEST(test_w6300_sn_ir_w1c_via_irclr) {
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_IR, 0x10);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_IR),
+              "Sn_IR direct write must not set");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_UDP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND);
+    ASSERT_EQ(W6300_IR_SENDOK, (int)(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK),
+              "SEND_OK after SEND");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_IRCLR, W6300_IR_SENDOK);
+    ASSERT_EQ(0x00, (int)(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK),
+              "IRCLR must W1C-clear SEND_OK");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_SIR),
+              "SIR clear after IRCLR");
+    PASS();
+}
+
+TEST(test_w6300_macraw_gateway_path) {
+    reset_cpu();
+    w6300_board_detach();
+    vnet_init();
+    w6300_t dev;
+    w6300_init(&dev);
+    dev.common[W6300_SHAR0 + 0] = 0x02;
+    dev.common[W6300_SHAR0 + 1] = 0x11;
+    dev.common[W6300_SHAR0 + 2] = 0x22;
+    dev.common[W6300_SHAR0 + 3] = 0x33;
+    dev.common[W6300_SHAR0 + 4] = 0x44;
+    dev.common[W6300_SHAR0 + 5] = 0x55;
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_MACRAW);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_MACRAW, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "Sock0 should be MACRAW after OPEN");
+    ASSERT_TRUE(dev.vnet_port >= 0, "Sock0 MACRAW should attach a vnet port");
+
+    uint8_t obs_mac[6] = {0x02, 0xBB, 0x00, 0x00, 0x00, 0x77};
+    test_vnet_rx_len = 0;
+    vnet_register_port("w6300-observer", VNET_PORT_CUSTOM, obs_mac,
+                       test_vnet_rx_callback, NULL);
+    uint8_t frame[60];
+    memset(frame, 0xFF, 6);
+    memcpy(frame + 6, dev.common + W6300_SHAR0, 6);
+    frame[12] = 0x08; frame[13] = 0x00;
+    for (int i = 14; i < 60; i++) frame[i] = (uint8_t)i;
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(2, 1));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    for (int i = 0; i < 60; i++) w6300_spi_xfer(&dev, frame[i]);
+    w6300_spi_cs(&dev, 0);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0 + 1, 60);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK,
+                "SEND_OK should be set after MACRAW SEND");
+    ASSERT_EQ(60, test_vnet_rx_len, "observer port should get 60B frame");
+    ASSERT_EQ(0, memcmp(test_vnet_rx_buf, frame, 60),
+              "observer frame should match TX bytes");
+
+    uint8_t inbound[42];
+    memcpy(inbound, dev.common + W6300_SHAR0, 6);
+    inbound[6] = 0x02; inbound[7] = 0xBB; inbound[8] = 0x00;
+    inbound[9] = 0x00; inbound[10] = 0x00; inbound[11] = 0x01;
+    inbound[12] = 0x08; inbound[13] = 0x06;
+    for (int i = 14; i < 42; i++) inbound[i] = (uint8_t)(0xA0 + i);
+    vnet_tx_frame(-1, inbound, sizeof(inbound));
+    uint16_t rsr = ((uint16_t)test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0) << 8) |
+                   test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0 + 1);
+    ASSERT_EQ(44, (int)rsr, "RSR should be len+2 after inbound frame");
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_RECV,
+                "RECV should be set after inbound frame");
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(3, 0));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    uint8_t lhi = w6300_spi_xfer(&dev, 0xFF);
+    uint8_t llo = w6300_spi_xfer(&dev, 0xFF);
+    w6300_spi_cs(&dev, 0);
+    ASSERT_EQ(0, (int)lhi, "length prefix hi should be 0");
+    ASSERT_EQ(44, (int)llo, "length prefix lo should be 42+2");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_RECV);
+    rsr = ((uint16_t)test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0) << 8) |
+          test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0 + 1);
+    ASSERT_EQ(0, (int)rsr, "RSR should be 0 after RECV");
+    vnet_cleanup();
+    PASS();
+}
+
+TEST(test_board_w6300_off_by_default) {
+    w6300_board_detach();
+    ASSERT_EQ(0, w6300_board_enabled(), "Board should be off by default");
+    w6300_board_gpio_write(16, 0);
+    w6300_board_poll();
+    w6300_board_update_int();
+    w6300_board_reattach();
+    w6300_board_set_live(1);
+    ASSERT_EQ(0, w6300_board_enabled(), "Still off after guard calls");
+    PASS();
+}
+
+TEST(test_board_w6300_attach_spi0_cs16) {
+    reset_cpu();
+    w6300_board_detach();
+    w5500_board_detach();
+    w6300_board_attach(0, 0);
+    ASSERT_EQ(1, w6300_board_enabled(), "Board should be on after attach");
+    ASSERT_EQ(0, w6300_board_spi(), "Board should be on SPI0");
+    mem_write32(0x4003C000 + 0x000, 0x07);
+    mem_write32(0x4003C000 + 0x010, 0x02);
+    mem_write32(0x4003C000 + 0x004, 0x02);
+    mem_write32(SIO_BASE_GPIO + 0x24, (1u << 16));
+    mem_write32(SIO_BASE_GPIO + 0x18, (1u << 16));
+    mem_write32(0x4003C000 + 0x008, W6300_OPCODE(0, 0));
+    (void)mem_read32(0x4003C000 + 0x008);
+    mem_write32(0x4003C000 + 0x008, (W6300_CIDR2 >> 8) & 0xFF);
+    (void)mem_read32(0x4003C000 + 0x008);
+    mem_write32(0x4003C000 + 0x008, W6300_CIDR2 & 0xFF);
+    (void)mem_read32(0x4003C000 + 0x008);
+    mem_write32(0x4003C000 + 0x008, 0x00);
+    (void)mem_read32(0x4003C000 + 0x008);
+    mem_write32(0x4003C000 + 0x008, 0xFF);
+    uint8_t cidr2 = (uint8_t)mem_read32(0x4003C000 + 0x008);
+    mem_write32(SIO_BASE_GPIO + 0x14, (1u << 16));
+    ASSERT_EQ(0x11, (int)cidr2, "CIDR2 should read 0x11 over PL022");
+    w6300_board_detach();
+    PASS();
+}
+
+TEST(test_board_w6300_int_assert_clear) {
+    reset_cpu();
+    w6300_board_detach();
+    w5500_board_detach();
+    w6300_board_attach(0, 0);
+    w6300_t *bd = w6300_board_dev();
+    bd->sockets[2].regs[W6300_Sn_IR] = W6300_IR_RECV;
+    w6300_board_update_int();
+    ASSERT_EQ(0, (int)gpio_get_pin(15), "INTn GPIO15 should be low with IRQ pending");
+    bd->sockets[2].regs[W6300_Sn_IR] = 0x00;
+    w6300_board_update_int();
+    ASSERT_EQ(1, (int)gpio_get_pin(15), "INTn GPIO15 should be high when idle");
+    w6300_board_detach();
+    PASS();
+}
+
+TEST(test_board_w6300_rst_pulse) {
+    reset_cpu();
+    w6300_board_detach();
+    w5500_board_detach();
+    w6300_board_attach(0, 0);
+    w6300_t *bd = w6300_board_dev();
+    test_w6300_reg_write(bd, 0, W6300_NETLCKR, W6300_NET_UNLOCK);
+    test_w6300_reg_write(bd, 0, W6300_SHAR0, 0x5A);
+    ASSERT_EQ(0x5A, (int)test_w6300_reg_read(bd, 0, W6300_SHAR0), "SHAR staged");
+    w6300_board_gpio_write(22, 0);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(bd, 0, W6300_SHAR0), "RSTn low clears SHAR");
+    w6300_board_gpio_write(22, 1);
+    ASSERT_EQ(0x61, (int)test_w6300_reg_read(bd, 0, W6300_CIDR0), "RSTn high restores CIDR0");
+    uint8_t sysr = test_w6300_reg_read(bd, 0, W6300_SYSR);
+    ASSERT_TRUE(sysr & W6300_SYSR_NETL, "locks return after RST pulse");
+    w6300_board_detach();
+    PASS();
+}
+
+TEST(test_spi_rp2350_base_routes_spi0_w6300) {
+    reset_cpu();
+    membus_rp2350_mode = 1;
+    w6300_board_detach();
+    w5500_board_detach();
+    w6300_board_attach(0, 0);
+    mem_write32(0x40080000 + 0x000, 0x07);
+    mem_write32(0x40080000 + 0x010, 0x02);
+    mem_write32(0x40080000 + 0x004, 0x02);
+    mem_write32(SIO_BASE_GPIO + 0x24, (1u << 16));
+    mem_write32(SIO_BASE_GPIO + 0x18, (1u << 16));
+    mem_write32(0x40080000 + 0x008, W6300_OPCODE(0, 0));
+    (void)mem_read32(0x40080000 + 0x008);
+    mem_write32(0x40080000 + 0x008, (W6300_CIDR2 >> 8) & 0xFF);
+    (void)mem_read32(0x40080000 + 0x008);
+    mem_write32(0x40080000 + 0x008, W6300_CIDR2 & 0xFF);
+    (void)mem_read32(0x40080000 + 0x008);
+    mem_write32(0x40080000 + 0x008, 0x00);
+    (void)mem_read32(0x40080000 + 0x008);
+    mem_write32(0x40080000 + 0x008, 0xFF);
+    uint8_t cidr2 = (uint8_t)mem_read32(0x40080000 + 0x008);
+    mem_write32(SIO_BASE_GPIO + 0x14, (1u << 16));
+    ASSERT_EQ(0x11, (int)cidr2, "CIDR2 should read 0x11 over RP2350 SPI0 base");
+    membus_rp2350_mode = 0;
+    w6300_board_detach();
+    PASS();
+}
+
 /* M33 path check: RP2350 SPI0 base routes to the same SPI0 instance the
  * pico-eth board attaches to (RP2040 base still works in RP2350 mode). */
 TEST(test_spi_rp2350_base_routes_spi0) {
@@ -8431,6 +8737,21 @@ int main(void) {
     RUN_TEST(test_spi_rp2350_base_routes_spi0);
     RUN_TEST(test_w5500_macraw_gateway_dhcp_path);
     END_CATEGORY("W5500 Live Networking");
+
+    BEGIN_CATEGORY("W6300 Ethernet Controller");
+    RUN_TEST(test_w6300_cidr_version);
+    RUN_TEST(test_w6300_locks_boot_locked);
+    RUN_TEST(test_w6300_physr_polarity);
+    RUN_TEST(test_w6300_tcp_open_close);
+    RUN_TEST(test_w6300_udp_open);
+    RUN_TEST(test_w6300_sn_ir_w1c_via_irclr);
+    RUN_TEST(test_w6300_macraw_gateway_path);
+    RUN_TEST(test_board_w6300_off_by_default);
+    RUN_TEST(test_board_w6300_attach_spi0_cs16);
+    RUN_TEST(test_board_w6300_int_assert_clear);
+    RUN_TEST(test_board_w6300_rst_pulse);
+    RUN_TEST(test_spi_rp2350_base_routes_spi0_w6300);
+    END_CATEGORY("W6300 Ethernet Controller");
 
     BEGIN_CATEGORY("Cortex-M33");
     RUN_TEST(test_m33_cpuid);

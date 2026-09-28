@@ -21,6 +21,7 @@
 #include "sdcard.h"
 #include "emmc.h"
 #include "w5500.h"
+#include "w6300.h"
 #include "vnet.h"
 #include "sdd.h"
 #include "devtools.h"
@@ -78,6 +79,8 @@ static emmc_t wasm_emmc;
 static int wasm_emmc_on = 0;
 static w5500_t wasm_w5500;
 static int wasm_w5500_on = 0;
+static w6300_t wasm_w6300;
+static int wasm_w6300_on = 0;
 static int wasm_vnet_on = 0;
 
 /* UART TX buffer: firmware → browser */
@@ -130,6 +133,7 @@ int picoemu_init(int arch) {
     reset_runtime_peripherals();
     /* A fresh init drops all boards (loadFirmware calls init per file). */
     w5500_board_detach();
+    w6300_board_detach();
     dual_core_init();
 
     memset(&rv_cores[0], 0, sizeof(rv_cpu_state_t));
@@ -336,6 +340,7 @@ static void picoemu_watchdog_reboot(void) {
     clocks_state.wdog_ctrl &= ~(1u << 31);
     reset_runtime_peripherals();
     w5500_board_reattach();  /* spi_init cleared slots; board keeps state */
+    w6300_board_reattach();
     dual_core_init();
     if (current_arch == ARCH_RV32) {
         rv_cpu_reset(&rv_cores[0], 0x00000000);
@@ -473,7 +478,9 @@ int picoemu_step(int n_instructions) {
                 cyw43_bt_hci_poll();
                 cyw43_ndp_ra_poll();
                 if (wasm_w5500_on) w5500_poll(&wasm_w5500);
+                if (wasm_w6300_on) w6300_poll(&wasm_w6300);
                 w5500_board_poll();  /* no-op unless pico-eth on */
+                w6300_board_poll();  /* no-op unless pico-w6300 on */
                 if (fault_count > 0) fault_check(rv_cores[0].cycle_count);
                 if (script_enabled) script_poll((uint32_t)(rv_cores[0].cycle_count / (timing_config.cycles_per_us ? timing_config.cycles_per_us : 1)));
             }
@@ -578,7 +585,9 @@ int picoemu_step(int n_instructions) {
                 cyw43_bt_hci_poll();
                 cyw43_ndp_ra_poll();
                 if (wasm_w5500_on) w5500_poll(&wasm_w5500);
+                if (wasm_w6300_on) w6300_poll(&wasm_w6300);
                 w5500_board_poll();  /* no-op unless pico-eth on */
+                w6300_board_poll();  /* no-op unless pico-w6300 on */
                 if (fault_count > 0) fault_check(global_cycle_count);
                 if (script_enabled) {
                     uint32_t eus = timing_config.cycles_per_us ?
@@ -730,6 +739,10 @@ int picoemu_net_enable(int live) {
 void w5500_macraw_vnet_mark(void) {
     wasm_vnet_on = 1;
 }
+/* Same for the W6300 MACRAW path. */
+void w6300_macraw_vnet_mark(void) {
+    wasm_vnet_on = 1;
+}
 /* Single-gateway switch for the browser/Node UI (default ON). */
 void picoemu_w5500_gw_enable(int on) {
     w5500_gw_enable_set(on);
@@ -745,6 +758,31 @@ int picoemu_board_eth(int on, int live, int spi) {
     }
     w5500_board_attach(spi, live);
     return 1;
+}
+/* pico-w6300 board (WIZnet W6300-EVB-Pico): QSPI-single on the same
+ * PL022 path; CSn=16/RSTn=22/INTn=15. */
+int picoemu_board_eth6300(int on, int live, int spi) {
+    if (!on) { w6300_board_detach(); return 0; }
+    if (spi < 0 || spi > 1) spi = 0;
+    if (w6300_board_enabled()) {
+        w6300_board_set_live(live);
+        return 1;
+    }
+    w6300_board_attach(spi, live);
+    return 1;
+}
+/* W6300 live floating device + gateway switch (mirrors W5500 pair). */
+int picoemu_net_enable6300(int live) {
+    if (!wasm_vnet_on) { vnet_init(); wasm_vnet_on = 1; }
+    if (live && !wasm_w6300_on) {
+        w6300_init(&wasm_w6300);
+        w6300_set_live(&wasm_w6300, 1);
+        wasm_w6300_on = 1;
+    }
+    return 1;
+}
+void picoemu_w6300_gw_enable(int on) {
+    w6300_gw_enable_set(on);
 }
 int picoemu_sdd_add(const char *arg) {
     if (!arg) return -1;
@@ -851,6 +889,22 @@ int picoemu_w5500_push_status(int sock, int code) {
         return picoemu_w5500_dev_push_status(w5500_board_dev(), sock, code);
     if (!wasm_w5500_on) return -1;
     return picoemu_w5500_dev_push_status(&wasm_w5500, sock, code);
+}
+/* W6300 proxy RX into live device(s). The pico-w6300 board owns its own
+ * instance; when it is on, the proxy targets it (same 8-socket model). */
+int picoemu_w6300_push_rx(int sock, const uint8_t *data, int len) {
+    extern int picoemu_w6300_dev_push_rx(w6300_t *dev, int sock, const uint8_t *data, int len);
+    if (w6300_board_enabled())
+        return picoemu_w6300_dev_push_rx(w6300_board_dev(), sock, data, len);
+    if (!wasm_w6300_on) return -1;
+    return picoemu_w6300_dev_push_rx(&wasm_w6300, sock, data, len);
+}
+int picoemu_w6300_push_status(int sock, int code) {
+    extern int picoemu_w6300_dev_push_status(w6300_t *dev, int sock, int code);
+    if (w6300_board_enabled())
+        return picoemu_w6300_dev_push_status(w6300_board_dev(), sock, code);
+    if (!wasm_w6300_on) return -1;
+    return picoemu_w6300_dev_push_status(&wasm_w6300, sock, code);
 }
 
 /* Devtools: all 18 tools over MEMFS (tmp bins) + query hooks */

@@ -109,6 +109,11 @@ run_wifi wifi_ble_gatt_rv32.uf2 "RV32 BLE GATT-DONE" 2000000000
 run_eth eth_dhcp.uf2 "ETH MACRAW-OK" 3000000 pico-eth none
 run_eth eth_dhcp_pico2.uf2 "ETH MACRAW-OK" 3000000 pico-eth2 none
 run_eth eth_dhcp_rv32.uf2 "ETH MACRAW-OK" 3000000 pico-eth rv32
+# pico-w6300 DHCP guests (M0+/M33/RV32): same pre-DORA markers over the
+# W6300 board (QSPI-single, CIDR2 + unlock + Sn_MR=0x07/MACRAW-OPEN).
+run_eth eth_dhcp6300.uf2 "ETH MACRAW-OK" 3000000 pico-w6300 none
+run_eth eth_dhcp6300_pico2.uf2 "ETH MACRAW-OK" 3000000 pico-w6300-2 none
+run_eth eth_dhcp6300_rv32.uf2 "ETH MACRAW-OK" 3000000 pico-w6300 rv32
 # pico-eth HTTP guests (M0+/M33/RV32): full DORA+HTTP is covered by
 # test-firmware/http_peer_test.py (needs a live peer); the sweep asserts
 # the pre-DORA markers the same way.
