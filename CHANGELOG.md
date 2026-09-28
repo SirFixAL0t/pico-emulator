@@ -1,4 +1,4 @@
-# Bramble RP2040/RP2350 Emulator - Changelog
+# Pico-emu RP2040/RP2350 Emulator - Changelog
 
 ## [Unreleased] - 2026-09-23
 
@@ -190,7 +190,7 @@ ip=192.168.4.2`; in-tree DORA re-verified x3 (M0+/M33/RV32 `ETH DONE`);
   `STATUS=3`, `IP=192.168.4.2` under `-arch m33 -wifi` — the `SCAN n=0`
   row was stale (same LEVEL_HIGH fix unblocked the escan IOCTL response
   path); `docs/NETWORKING.md` + `test-firmware/arduino/README.md` updated.
-- **WASMs rebuilt** (`web/bramble.wasm.wasm` 316K + threads variant):
+- **WASMs rebuilt** (`web/picoemu.wasm.wasm` 316K + threads variant):
   `node test-wasm.js` PASS, `node test-wasm-ble.js` PASS.
 
 ### Out of scope (documented, not attempted)
@@ -372,7 +372,7 @@ ip=192.168.4.2`; in-tree DORA re-verified x3 (M0+/M33/RV32 `ETH DONE`);
   with matching SysTick advance when all cores sleep. A 1s `sleep_ms`
   previously needed minutes of wall time.
 - **TinyUSB CDC hello** (`web/hello_usb.uf2`, preset + `test-wasm.js`
-  assert): Pico SDK `hello_usb` prints over USB CDC in Bramble, native and
+  assert): Pico SDK `hello_usb` prints over USB CDC in Pico-emu, native and
   browser. Same code path SagePico uses; its firmware is not available, so
   SagePico itself stays unverified.
 - **W5500 real internet**: `web/net_proxy.py` dials real TCP/UDP; verified
@@ -407,7 +407,7 @@ panicked with `ep 0 in was already available` from
   is exactly what TinyUSB panics on). Stalls now log throttled warnings.
 - **stdin routing**: USB CDC gets raw bytes (MicroPython wants CR to submit
   a line); UART shells keep CR/CRLF→LF. Applies to native (`main.c`) and
-  browser input (`bramble_wasm.c` feed + Send appends CR).
+  browser input (`picoemu_wasm.c` feed + Send appends CR).
 - **WASM serial monitor**: USB CDC output always captured via `putchar`
   (native `-stdin` gate does not exist in the browser); UART path unchanged.
 
@@ -426,12 +426,12 @@ SagePico welcome message) is still open — see Known Issues.
 
 ### Added - WASM parity: polls, GDB proxy, live net, devtools-18, threads, tests
 
-- **WASM step-loop parity** (`src/bramble_wasm.c`): `bramble_step` now drives `pio_step`, `usb_step`, `net_bridge_poll`, `wire_poll`, `cyw43_tap_poll`, `vnet_poll`, `w5500_poll`, `sdcard/emmc_flush`, `fault_check`, `script_poll`, watchdog reboot, and `gdb_should_stop` for both ARM and RV32 paths.
-- **GDB RSP over WebSocket** (`src/gdb.c`, `src/bramble_wasm.c`, `web/index.html`, `web/net_proxy.py`): non-blocking TX/RX queues, `gdb_recv_packet` queue mode with checksum NAK, `bramble_gdb_poll` single-packet (resume/step/stay/detach), `bramble_gdb_enable/is_hit/break/push_rx/pop_tx`, per-frame TX pump, proxy bridges WS `/gdb` to TCP `:3333` (`target remote :3333`).
-- **W5500 dest-aware live dial**: `OPEN/CONNECT/LISTEN/CLOSE` forward `[0x43/0x4C/0x58/0x57, ...]` with DIPR/DPORT from registers; proxy dials real TCP/UDP, returns `STATUS [0x53,sock,1,code]` (`CON`/`DISCON`) and `DATA [sock,len,payload]`; `bramble_w5500_push_rx/status` inject with `RECV` interrupt. UART/ETH demux skips control prefixes.
-- **ETH mesh**: `wire_send_eth_frame` via `BroadcastChannel` binary + optional WS `ETH` header; `bramble_eth_push_rx` into `vnet`; proxy broadcasts `/eth` across machines.
+- **WASM step-loop parity** (`src/picoemu_wasm.c`): `picoemu_step` now drives `pio_step`, `usb_step`, `net_bridge_poll`, `wire_poll`, `cyw43_tap_poll`, `vnet_poll`, `w5500_poll`, `sdcard/emmc_flush`, `fault_check`, `script_poll`, watchdog reboot, and `gdb_should_stop` for both ARM and RV32 paths.
+- **GDB RSP over WebSocket** (`src/gdb.c`, `src/picoemu_wasm.c`, `web/index.html`, `web/net_proxy.py`): non-blocking TX/RX queues, `gdb_recv_packet` queue mode with checksum NAK, `picoemu_gdb_poll` single-packet (resume/step/stay/detach), `picoemu_gdb_enable/is_hit/break/push_rx/pop_tx`, per-frame TX pump, proxy bridges WS `/gdb` to TCP `:3333` (`target remote :3333`).
+- **W5500 dest-aware live dial**: `OPEN/CONNECT/LISTEN/CLOSE` forward `[0x43/0x4C/0x58/0x57, ...]` with DIPR/DPORT from registers; proxy dials real TCP/UDP, returns `STATUS [0x53,sock,1,code]` (`CON`/`DISCON`) and `DATA [sock,len,payload]`; `picoemu_w5500_push_rx/status` inject with `RECV` interrupt. UART/ETH demux skips control prefixes.
+- **ETH mesh**: `wire_send_eth_frame` via `BroadcastChannel` binary + optional WS `ETH` header; `picoemu_eth_push_rx` into `vnet`; proxy broadcasts `/eth` across machines.
 - **Devtools 18/18 in browser**: `profile`, `callgraph`, `gpio VCD`, `IRQ latency`, `stack check`, `symbols`, `watch`, `fault`, `script`, `expect`, `heatmap`, `bus log` exports plus Devtools panel with Dump+Download (`FS.readFile` Blobs).
-- **Threads**: `web/bramble_worker.js` off-main-thread stepping, `web/serve_coop.py` COOP/COEP server, `build_wasm_threads.sh` `-pthread` variant (`web/bramble.wasm.threads.{js,wasm}`), SAB detect panel with cooperative fallback.
+- **Threads**: `web/picoemu_worker.js` off-main-thread stepping, `web/serve_coop.py` COOP/COEP server, `build_wasm_threads.sh` `-pthread` variant (`web/picoemu.wasm.threads.{js,wasm}`), SAB detect panel with cooperative fallback.
 - **WASM tests**: `test-wasm.js` (Node mirrors ctest + boots hello/gpio/timer/littleos both chips + MicroPython note).
 - **USB host parity**: string descriptors (lang/mfr/prod/serial) + `SET_INTERFACE` states, config parse moved before string phase (EP0 clobber safe), control-stall auto-DONE guard (SagePico retry bound), CDC OUT via `putchar` in WASM, RX routed to USB when `usb_cdc_stdio_active`.
 - **24LC256 EEPROM SDD** (`src/sdd_eeprom.c`): 32KB I2C EEPROM at `0x50`, page-wrap writes, sequential wrap, optional `file=` persistence. `-sdd eeprom[:i2c=,addr=,file=]`.
@@ -481,9 +481,9 @@ SagePico welcome message) is still open — see Known Issues.
 
 ### Added - Virtual Networking, Software-Defined Devices, W5500 Live Sockets
 
-- **Virtual Network Bus (vnet)**: Central Ethernet frame routing layer (`src/vnet.c`, `include/vnet.h`). Device models (CYW43, W5500, SDDs) register as ports via `vnet_register_port()`. Frames routed between registered ports, TAP interface, and peer Bramble instances.
-- **Single-Command Internet Bridge** (`-net`): Creates TAP interface `bramble0`, assigns 192.168.7.1/24, enables IP forwarding and NAT masquerade in one step. Auto-sudo when needed.
-- **Multi-Instance Mesh** (`-net-peer <path>`): Unix socket peer connections with length-prefixed Ethernet frame relay. Multiple Bramble instances share the same virtual LAN.
+- **Virtual Network Bus (vnet)**: Central Ethernet frame routing layer (`src/vnet.c`, `include/vnet.h`). Device models (CYW43, W5500, SDDs) register as ports via `vnet_register_port()`. Frames routed between registered ports, TAP interface, and peer Pico-emu instances.
+- **Single-Command Internet Bridge** (`-net`): Creates TAP interface `picoemu0`, assigns 192.168.7.1/24, enables IP forwarding and NAT masquerade in one step. Auto-sudo when needed.
+- **Multi-Instance Mesh** (`-net-peer <path>`): Unix socket peer connections with length-prefixed Ethernet frame relay. Multiple Pico-emu instances share the same virtual LAN.
 - **Wire Ethernet Relay** (`-wire-eth <path>`): `WIRE_MSG_ETH_FRAME` (0x04) message type extends the wire protocol with large-frame support (up to 1522 bytes). Uses extended framing: 4-byte header + 2-byte LE length + frame data.
 - **W5500 Live Networking** (`-net-live`): Socket commands (OPEN, CONNECT, LISTEN, SEND, RECV, CLOSE) create real host `AF_INET` TCP/UDP sockets. `w5500_poll()` accepts incoming connections, reads data into RX buffers, and detects disconnections with interrupt flag updates (CON, RECV, DISCON, SEND_OK).
 - **Software-Defined Device Framework** (`-sdd <type[:opts]>`): Pluggable virtual peripheral system (`src/sdd.c`, `include/sdd.h`). Devices define I2C/SPI/network callbacks and are auto-attached to configured buses upon registration.
@@ -828,7 +828,7 @@ SagePico welcome message) is still open — see Known Issues.
 
 ### Added - Privilege Escalation, Watchdog Hardening, and Dual-Core Correctness
 
-- Automatic privilege escalation: `-tap` and `-mount` flags now detect when root is needed, explain why, and re-exec via `sudo` with `BRAMBLE_ESCALATED` env guard to prevent loops. Falls back with a manual command hint on failure.
+- Automatic privilege escalation: `-tap` and `-mount` flags now detect when root is needed, explain why, and re-exec via `sudo` with `PICOEMU_ESCALATED` env guard to prevent loops. Falls back with a manual command hint on failure.
 - Help text annotates privileged flags with `(sudo)` so users know before running.
 - Watchdog reboot now fully resets multicore state: `num_active_cores` reset to 1, Core 1 bootrom launch state machine cleared, spinlocks and shared RAM zeroed, `active_core` reset to CORE0. Firmware must re-launch Core 1 through the standard FIFO protocol after reboot.
 - `nvic_init()` now calls `systick_reset()` so both cores' SysTick counters are properly cleared on watchdog reboot and peripheral re-initialization.
@@ -857,7 +857,7 @@ SagePico welcome message) is still open — see Known Issues.
 - Core pool registry updates now hold a single lock window for read/modify/write operations.
 - Wire transport now handles partial `SOCK_STREAM` reads and writes safely without desynchronizing frames.
 - `-stdin` now stages host input until a guest console is ready, preserving littleOS interactive shells while still delivering early piped or interactive input to USB CDC firmware such as MicroPython.
-- Consolidated the old `UPDATES.md` history into this file and refreshed `README.md`, `Bramble_Guide.md`, and `docs/`.
+- Consolidated the old `UPDATES.md` history into this file and refreshed `README.md`, `Pico-emu_Guide.md`, and `docs/`.
 - Added end-to-end regression coverage for memory-mapped alias paths including flash XIP aliases, NVIC subword MMIO, XIP SSI, IO_QSPI, PADS_QSPI, and BUSCTRL.
 - Added exception-path regression coverage for SVCall entry/return, IRQ delivery through `cpu_step()`, nested exception unwind, invalid-PC HardFault entry, and double-HardFault lockup.
 - Fixed the remaining `PADS_QSPI` decode overlap so QSPI pad accesses no longer fall through the generic `PADS_BANK0` path.
@@ -948,7 +948,7 @@ SagePico welcome message) is still open — see Known Issues.
 
 **Multi-Instance Core Pool:**
 
-- File-based registry (`/tmp/bramble-corepool.reg`) tracks running bramble instances
+- File-based registry (`/tmp/picoemu-corepool.reg`) tracks running picoemu instances
 - Each instance registers its PID and allocated core count
 - `corepool_query_cores()` recommends cores based on host CPU count minus active allocations
 - Stale entries (dead PIDs) automatically cleaned on each access
@@ -1054,7 +1054,7 @@ SagePico welcome message) is still open — see Known Issues.
 
 **Multi-Instance Wire Protocol:**
 
-- `-wire-uart0 <path>` / `-wire-uart1 <path>`: Wire UART between two Bramble instances
+- `-wire-uart0 <path>` / `-wire-uart1 <path>`: Wire UART between two Pico-emu instances
 - `-wire-gpio <path>`: Wire GPIO pins between instances
 - Unix domain socket IPC with auto server/client negotiation
 - First instance creates socket, second connects; both become peers
@@ -1083,7 +1083,7 @@ SagePico welcome message) is still open — see Known Issues.
 
 **CircuitPython 10.1.3 boots and runs code.py via USB CDC stdio.**
 
-Command: `./bramble python/circuitpython.uf2 -stdin -clock 125`
+Command: `./picoemu python/circuitpython.uf2 -stdin -clock 125`
 
 **ROSC Peripheral (0x40060000)**:
 
@@ -1121,7 +1121,7 @@ Command: `./bramble python/circuitpython.uf2 -stdin -clock 125`
 
 **MicroPython v1.27.0 boots and runs REPL via USB CDC stdio.**
 
-Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
+Command: `./picoemu python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 
 **USB Fixes**:
 
@@ -1161,7 +1161,7 @@ Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 
 - All emulator boot, init, loader, and status messages redirected to stderr
 - Firmware UART/USB CDC output is now the only thing on stdout
-- Enables clean piping: `./bramble firmware.uf2 -stdin > output.txt`
+- Enables clean piping: `./picoemu firmware.uf2 -stdin > output.txt`
 - Affected files: main.c, cpu.c, rom.c, uf2.c, elf.c, gdb.c
 
 **Runtime Diagnostic Printf Gated Behind `-debug`**:
@@ -1585,7 +1585,7 @@ Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 - Thread and feature queries (qSupported, qAttached, qC, qfThreadInfo)
 - Initial stop on connect: GDB can inspect state before execution starts
 - 10M instruction limit disabled during GDB sessions
-- Usage: `./bramble firmware.uf2 -gdb` then `arm-none-eabi-gdb -ex "target remote :3333"`
+- Usage: `./picoemu firmware.uf2 -gdb` then `arm-none-eabi-gdb -ex "target remote :3333"`
 
 ### Files Added
 
@@ -1653,7 +1653,7 @@ Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 - Non-blocking stdin via `O_NONBLOCK` + `poll()` syscall
 - Polls every 1024 steps and pushes bytes into UART0 RX FIFO via `uart_rx_push()`
 - Cleanup restores blocking stdin mode on exit
-- Usage: `./bramble firmware.uf2 -stdin`
+- Usage: `./picoemu firmware.uf2 -stdin`
 
 ### Testing
 
@@ -2013,7 +2013,7 @@ Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 **Testing**:
 
 - **Unit test suite**: 36 tests across 10 categories (PRIMASK, SVC, RAM execution, dispatch table, peripheral stubs, ADCS/SBCS/RSBS, dual-core memory, ELF loader, memory bus, instruction integration)
-- Built as `bramble_tests` CMake target, integrated with CTest
+- Built as `picoemu_tests` CMake target, integrated with CTest
 
 ### Files Added
 
@@ -2026,7 +2026,7 @@ Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 - `src/instructions.c` - PRIMASK, SVC exception, ADCS/SBCS/RSBS, `pc_updated` flag pattern
 - `src/membus.c` - Pointer-based RAM routing, SPI/I2C/PWM stubs, shared flash reads
 - `include/emulator.h` - PRIMASK fields, peripheral base addresses, `mem_set_ram_ptr()`, ELF loader declaration
-- `CMakeLists.txt` - Added `elf.c` source, `bramble_tests` target
+- `CMakeLists.txt` - Added `elf.c` source, `picoemu_tests` target
 
 ### Known Issues
 
@@ -2132,14 +2132,14 @@ Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 **Single-Core Mode**:
 ```bash
 # Comment out: #define DUAL_CORE_ENABLED in emulator.h
-./bramble hello_world.uf2
+./picoemu hello_world.uf2
 # Output: Single-core banner and execution ✅
 ```
 
 **Dual-Core Mode**:
 ```bash
 # Uncomment: #define DUAL_CORE_ENABLED in emulator.h
-./bramble littleOS.uf2 -debug -status
+./picoemu littleOS.uf2 -debug -status
 # Output: Dual-core banner, both cores execute ✅
 ```
 
@@ -2165,7 +2165,7 @@ Command: `./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin`
 
 5. **Test**:
    ```bash
-   ./bramble firmware.uf2  # Single or dual depending on config
+   ./picoemu firmware.uf2  # Single or dual depending on config
    ```
 
 ### Performance Impact
@@ -2195,7 +2195,7 @@ Special thanks to Night-Traders-Dev team for dual-core architecture guidance and
 - Independent debug flags for flexible output control
   - `-debug` flag: Verbose CPU step output (existing feature, now independent)
   - `-asm` flag: Instruction-level tracing (POP/BX/branches)
-  - Both flags can be used separately or combined: `./bramble -debug -asm firmware.uf2`
+  - Both flags can be used separately or combined: `./picoemu -debug -asm firmware.uf2`
 
 **Files Modified**:
 - `include/emulator.h` - Added `debug_asm` flag to `cpu_state_t`
@@ -2268,7 +2268,7 @@ Overall: 7.4/10
 ### Documentation
 
 - New: `docs/NVIC_audit_report.md` - Complete audit findings with implementation guide
-- New: Logo asset `assets/bramble-logo.jpg` - Official project branding
+- New: Logo asset `assets/picoemu-logo.jpg` - Official project branding
 - Updated: README.md with debug modes, NVIC status, and implementation roadmap
 
 ### Testing Notes
@@ -2277,16 +2277,16 @@ With new debug flags, you can now:
 
 ```bash
 # Assembly-only tracing (instruction details)
-./bramble -asm alarm_test.uf2
+./picoemu -asm alarm_test.uf2
 
 # CPU-only tracing (register state changes)
-./bramble -debug timer_test.uf2
+./picoemu -debug timer_test.uf2
 
 # Combined tracing (maximum verbosity)
-./bramble -debug -asm alarm_test.uf2
+./picoemu -debug -asm alarm_test.uf2
 
 # No tracing (production)
-./bramble hello_world.uf2
+./picoemu hello_world.uf2
 ```
 
 Output from `-asm` flag example:

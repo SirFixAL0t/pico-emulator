@@ -50,7 +50,7 @@ static int wasm_gdb_rx_head = 0, wasm_gdb_rx_tail = 0;
 static uint8_t wasm_gdb_tx[WASM_GDB_TX_SIZE];
 static int wasm_gdb_tx_head = 0, wasm_gdb_tx_tail = 0;
 
-void bramble_gdb_push_rx(const uint8_t *data, int len) {
+void picoemu_gdb_push_rx(const uint8_t *data, int len) {
     if (!data || len <= 0) return;
     for (int i = 0; i < len; i++) {
         int nxt = (wasm_gdb_rx_head + 1) % WASM_GDB_RX_SIZE;
@@ -59,7 +59,7 @@ void bramble_gdb_push_rx(const uint8_t *data, int len) {
         wasm_gdb_rx_head = nxt;
     }
 }
-int bramble_gdb_pop_tx(uint8_t *out, int maxlen) {
+int picoemu_gdb_pop_tx(uint8_t *out, int maxlen) {
     int n = 0;
     while (n < maxlen && wasm_gdb_tx_tail != wasm_gdb_tx_head) {
         out[n++] = wasm_gdb_tx[wasm_gdb_tx_tail];
@@ -67,7 +67,7 @@ int bramble_gdb_pop_tx(uint8_t *out, int maxlen) {
     }
     return n;
 }
-int bramble_gdb_tx_len(void) {
+int picoemu_gdb_tx_len(void) {
     int n = wasm_gdb_tx_head - wasm_gdb_tx_tail;
     if (n < 0) n += WASM_GDB_TX_SIZE;
     return n;
@@ -1029,7 +1029,7 @@ int gdb_handle(void) {
 /* WASM non-blocking GDB: send stop once, then process at most one packet.
  * Returns 0=resume, 1=single-step resume, 2=still stopped (no packet), -1=detach. */
 static int wasm_gdb_stop_sent = 0;
-void bramble_gdb_notify_stop(void) { wasm_gdb_stop_sent = 0; }
+void picoemu_gdb_notify_stop(void) { wasm_gdb_stop_sent = 0; }
 
 static int gdb_handle_one(const char *pkt) {
     if (!pkt || !pkt[0]) return 2;
@@ -1098,7 +1098,7 @@ static int gdb_handle_one(const char *pkt) {
     }
 }
 
-int bramble_gdb_poll(void) {
+int picoemu_gdb_poll(void) {
     if (!gdb.active) return -1;
     if (!wasm_gdb_stop_sent) {
         if (gdb.wp_hit) {
@@ -1128,7 +1128,7 @@ int bramble_gdb_poll(void) {
 }
 
 /* WASM GDB server start without TCP (WebSocket proxy provides transport) */
-int bramble_gdb_start(void) {
+int picoemu_gdb_start(void) {
     memset(&gdb, 0, sizeof(gdb));
     gdb.server_fd = -1;
     gdb.client_fd = -1;
@@ -1140,5 +1140,5 @@ int bramble_gdb_start(void) {
     wasm_gdb_stop_sent = 0;
     return 0;
 }
-void bramble_gdb_stop(void) { gdb.active = 0; }
+void picoemu_gdb_stop(void) { gdb.active = 0; }
 #endif

@@ -75,7 +75,7 @@ static void dma_do_transfer(int ch_idx) {
                                         : DMA_CTRL_INCR_WRITE)) ? 1 : 0;
     int bswap      = (c->ctrl & (rp2350 ? DMA_CTRL_RP2350_BSWAP
                                         : DMA_CTRL_BSWAP))      ? 1 : 0;
-    { static int den = -1; if (den < 0) den = getenv("BRAMBLE_CYW43_TRACE") ? 1 : 0;
+    { static int den = -1; if (den < 0) den = getenv("PICOEMU_CYW43_TRACE") ? 1 : 0;
       if (den) fprintf(stderr, "[DMA-TRACE] ch=%d count=%u ctrl=0x%08X size=%d r=%d w=%d swap=%d src=0x%08X dst=0x%08X\n",
                        ch_idx, count, c->ctrl, data_size, incr_read, incr_write, bswap, c->read_addr, c->write_addr); }
 

@@ -1,5 +1,5 @@
 /*
- * Developer Tools for Bramble RP2040 Emulator
+ * Developer Tools for Pico-emu RP2040 Emulator
  *
  * Provides:
  * - ARM semihosting (BKPT #0xAB interception)

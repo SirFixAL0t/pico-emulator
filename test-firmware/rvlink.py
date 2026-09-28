@@ -1,4 +1,4 @@
-"""Minimal RISC-V static linker for bare-metal Bramble demos.
+"""Minimal RISC-V static linker for bare-metal Pico-emu demos.
 Usage: rvlink.py in.o out.bin [--base 0x10000000]
 Lays .text at base, .rodata after (align 4). Handles R_RISCV_JAL/BRANCH/
 HI20/LO12/PCREL_HI20/PCREL_LO12; ignores ALIGN/RELAX; fails on anything else.

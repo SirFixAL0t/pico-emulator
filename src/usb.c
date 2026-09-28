@@ -112,7 +112,7 @@ static void usb_complete_ep0_out(uint8_t *data, int len) {
     usb_fire_irq();
 }
 
-/* WASM debug probes (see bramble_usb_state32) */
+/* WASM debug probes (see picoemu_usb_state32) */
 int usb_enum_state_dbg(void) { return (int)usb_state.enum_state; }
 int usb_ctrl_state_dbg(void) { return (int)usb_state.ctrl_state; }
 
@@ -122,10 +122,10 @@ int usb_ctrl_state_dbg(void) { return (int)usb_state.ctrl_state; }
 
 static void usb_ctrl_step(void) {
     uint32_t buf_ctrl;
-    /* Transition trace (BRAMBLE_USB_TRACE=1): logs enum/ctrl changes + guard.
+    /* Transition trace (PICOEMU_USB_TRACE=1): logs enum/ctrl changes + guard.
      * Invaluable for diagnosing host/device handshake desyncs. */
     static int trace_en = -1;
-    if (trace_en < 0) trace_en = getenv("BRAMBLE_USB_TRACE") ? 1 : 0;
+    if (trace_en < 0) trace_en = getenv("PICOEMU_USB_TRACE") ? 1 : 0;
     static int last_enum = -1, last_ctrl = -1;
     if (trace_en && ((int)usb_state.enum_state != last_enum ||
                      (int)usb_state.ctrl_state != last_ctrl)) {
@@ -537,7 +537,7 @@ static void usb_handle_cdc(void) {
         int len = buf_ctrl & USB_BUF_CTRL_LEN_MASK;
         {
             static int cin_tr = -1;
-            if (cin_tr < 0) cin_tr = getenv("BRAMBLE_USB_TRACE") ? 1 : 0;
+            if (cin_tr < 0) cin_tr = getenv("PICOEMU_USB_TRACE") ? 1 : 0;
             if (cin_tr)
                 fprintf(stderr, "[USB-CDC] IN ep=%d len=%d bc=%08x\n", ep, len, buf_ctrl);
         }
@@ -615,7 +615,7 @@ static void usb_cdc_rx_drain(void) {
 
     {
         static int cdc_tr = -1;
-        if (cdc_tr < 0) cdc_tr = getenv("BRAMBLE_USB_TRACE") ? 1 : 0;
+        if (cdc_tr < 0) cdc_tr = getenv("PICOEMU_USB_TRACE") ? 1 : 0;
         if (cdc_tr) {
             uint32_t ep_ctrl_dbg = dpram_read32(USB_DPRAM_EP_CTRL + (ep - 1) * 8 + 4);
             fprintf(stderr, "[USB-CDC] drain? count=%d ep=%d bc=%08x epctrl=%08x\n",
@@ -813,10 +813,10 @@ void usb_write32(uint32_t addr, uint32_t val) {
             }
             memcpy(&usb_state.dpram[off], &cur, 4);
         }
-        /* Trace EP0 buf_ctrl arming (BRAMBLE_USB_TRACE=1) */
+        /* Trace EP0 buf_ctrl arming (PICOEMU_USB_TRACE=1) */
         if (off == USB_DPRAM_BUF_CTRL || off == USB_DPRAM_BUF_CTRL + 4) {
             static int ep0_tr = -1;
-            if (ep0_tr < 0) ep0_tr = getenv("BRAMBLE_USB_TRACE") ? 1 : 0;
+            if (ep0_tr < 0) ep0_tr = getenv("PICOEMU_USB_TRACE") ? 1 : 0;
             if (ep0_tr) {
                 uint32_t bc;
                 memcpy(&bc, &usb_state.dpram[off], 4);
@@ -831,10 +831,10 @@ void usb_write32(uint32_t addr, uint32_t val) {
     /* Controller registers */
     uint32_t offset = base - USBCTRL_REGS_BASE;
 
-    /* Trace key register writes (BRAMBLE_USB_TRACE=1) */
+    /* Trace key register writes (PICOEMU_USB_TRACE=1) */
     if (offset == USB_MAIN_CTRL || offset == USB_SIE_CTRL || offset == USB_INTE) {
         static int reg_tr = -1;
-        if (reg_tr < 0) reg_tr = getenv("BRAMBLE_USB_TRACE") ? 1 : 0;
+        if (reg_tr < 0) reg_tr = getenv("PICOEMU_USB_TRACE") ? 1 : 0;
         if (reg_tr)
             fprintf(stderr, "[USB-REG] +%02x <= %08x (enum=%d ctrl=%d)\n",
                     offset, val, (int)usb_state.enum_state, (int)usb_state.ctrl_state);

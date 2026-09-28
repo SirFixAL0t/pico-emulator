@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.12)
 
 include(pico_sdk_import.cmake)
 
-project(bramble_test C CXX ASM)
+project(picoemu_test C CXX ASM)
 
 pico_sdk_init()
 

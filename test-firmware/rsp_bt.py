@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rsp_bt.py — guest backtrace via Bramble's GDB RSP stub + ELF symbols.
+"""rsp_bt.py — guest backtrace via Pico-emu's GDB RSP stub + ELF symbols.
 Usage: rsp_bt.py <elf> <port> [samples] [interval_ms]
 Connects, samples PC/SP/LR + stack return addresses, prints function names.
 """

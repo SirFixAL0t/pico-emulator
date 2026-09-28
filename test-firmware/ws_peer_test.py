@@ -4,7 +4,7 @@
 against the guest HTTP server (.100:80), verifies checksums + HTTP body.
 
 Usage (two terminals):
-  ./build/bramble web/wifi_webserver_rv32.uf2 -clock 125 -wifi \\
+  ./build/picoemu web/wifi_webserver_rv32.uf2 -clock 125 -wifi \\
       -net -net-peer /tmp/wstest.sock
   python3 test-firmware/ws_peer_test.py /tmp/wstest.sock
 Exit 0 + ALL PEER CHECKS PASSED on success.

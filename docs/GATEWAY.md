@@ -18,7 +18,7 @@ guest firmware (CYW43/W5500, DHCP)
 
 - Outbound: every guest frame on vnet is queued by the `ws-uplink`
   mirror and forwarded unchanged. No prefixes, no re-framing.
-- Inbound: gateway frames are injected via `bramble_eth_push_rx` and
+- Inbound: gateway frames are injected via `picoemu_eth_push_rx` and
   distributed to ports/peers/TAP like any vnet frame. Gateway-originated
   frames are tagged so they are never echoed back (no loops).
 - DHCP/DNS/NAT come from the gateway: guest stacks that DHCP (Pico-SDK
@@ -50,8 +50,8 @@ which provides DHCP/DNS/NAT. Verified: two Pico W instances in one room
 ```sh
 python3 web/gateway_bridge.py --sock /tmp/gwA.sock --room lab &
 python3 web/gateway_bridge.py --sock /tmp/gwB.sock --room lab &
-./build/bramble server.uf2 -wifi -nodhcp -net -net-peer /tmp/gwA.sock -mac DE:AD:BE:EF:00:01 &
-./build/bramble client.uf2 -wifi -nodhcp -net -net-peer /tmp/gwB.sock -mac DE:AD:BE:EF:00:02
+./build/picoemu server.uf2 -wifi -nodhcp -net -net-peer /tmp/gwA.sock -mac DE:AD:BE:EF:00:01 &
+./build/picoemu client.uf2 -wifi -nodhcp -net -net-peer /tmp/gwB.sock -mac DE:AD:BE:EF:00:02
 ```
 
 Wired Ethernet takes the same path with no WiFi flags (the W5500
@@ -60,7 +60,7 @@ because the W5500 has no fake server):
 
 ```sh
 python3 web/gateway_bridge.py --sock /tmp/eth.sock --room lab &
-./build/bramble web/eth_dhcp.uf2 -board pico-eth -net -net-peer /tmp/eth.sock
+./build/picoemu web/eth_dhcp.uf2 -board pico-eth -net -net-peer /tmp/eth.sock
 # in-tree guest prints ETH IP=192.168.4.2 + ETH DONE (DORA via the gateway)
 ```
 

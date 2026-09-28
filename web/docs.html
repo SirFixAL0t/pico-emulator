@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Docs — Bramble per-core support tables</title>
-<meta name="description" content="Feature support tables for RP2040 Cortex-M0+, RP2350 Cortex-M33, and RP2350 Hazard3 RV32 in the Bramble emulator.">
-<link rel="icon" type="image/png" href="./bramble-logo.png">
+<title>Docs — Pico-emu per-core support tables</title>
+<meta name="description" content="Feature support tables for RP2040 Cortex-M0+, RP2350 Cortex-M33, and RP2350 Hazard3 RV32 in the Pico-emu emulator.">
+<link rel="icon" type="image/png" href="./picoemu-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -14,10 +14,10 @@
 <body>
 
 <header class="faceplate">
-  <a class="brand" href="./index.html" aria-label="Bramble home">
+  <a class="brand" href="./index.html" aria-label="Pico-emu home">
     <span class="brand-mark" aria-hidden="true"></span>
     <span>
-      <span class="brand-name">Bramble</span><br>
+      <span class="brand-name">Pico-emu</span><br>
       <span class="brand-sub">RP2040 / RP2350 emulator in the browser</span>
     </span>
   </a>
@@ -42,7 +42,7 @@
   <div class="prose">
     <div class="callout">
       <strong>RP2350A or RP2350B — do we support them?</strong>
-      Yes, both. The A/B split is packaging, not silicon: the same die in a 60-pin package (30 GPIO, 4 ADC channels, 16 PWM channels) or an 80-pin package (48 GPIO, 8 ADC, 24 PWM). Bramble models the full die — 48 GPIO, 8 ADC channels, 16 DMA channels, 3 PIO blocks — so A-package firmware runs unchanged and the extra B pins stay idle. RP2354 variants (stacked 2&nbsp;MB flash) behave like external flash here: capacity is configurable up to 16&nbsp;MB.
+      Yes, both. The A/B split is packaging, not silicon: the same die in a 60-pin package (30 GPIO, 4 ADC channels, 16 PWM channels) or an 80-pin package (48 GPIO, 8 ADC, 24 PWM). Pico-emu models the full die — 48 GPIO, 8 ADC channels, 16 DMA channels, 3 PIO blocks — so A-package firmware runs unchanged and the extra B pins stay idle. RP2354 variants (stacked 2&nbsp;MB flash) behave like external flash here: capacity is configurable up to 16&nbsp;MB.
     </div>
 
     <h2>Pico 1 — RP2040, Cortex-M0+</h2>
@@ -138,19 +138,19 @@
     <h2>Guides</h2>
     <h3>Wired Ethernet: is there any on these chips?</h3>
     <p>Neither the RP2040 nor the RP2350 has an on-chip Ethernet MAC — there is nothing to route to pins, on any package. Boards that advertise Ethernet with these chips always add a separate controller over SPI. The boards you have seen are almost certainly WIZnet W5500 designs (hardwired TCP/IP stack, very common on Pico-shaped Ethernet hats) or, less often, Microchip ENC28J60 or LAN8720 PHY boards.</p>
-    <p>Bramble emulates the W5500 itself as an SPI device (<code>src/w5500.c</code>): 8 sockets with 2&nbsp;KB TX/RX buffers each, register-level compatible, with a live mode (<code>-net-live</code> natively, WebSocket proxy in the browser) that dials real host TCP/UDP sockets. So W5500-based firmware and carrier boards work here; what is modeled is the external chip, not silicon Ethernet — because the silicon has none.</p>
+    <p>Pico-emu emulates the W5500 itself as an SPI device (<code>src/w5500.c</code>): 8 sockets with 2&nbsp;KB TX/RX buffers each, register-level compatible, with a live mode (<code>-net-live</code> natively, WebSocket proxy in the browser) that dials real host TCP/UDP sockets. So W5500-based firmware and carrier boards work here; what is modeled is the external chip, not silicon Ethernet — because the silicon has none.</p>
     <h3>pico-eth board: WIZnet W5500-EVB-Pico (and Pico2)</h3>
     <p>The legacy <code>-net-live</code> device floats on the SPI bus with no board pins. The <code>pico-eth</code> board variant models the actual WIZnet W5500-EVB-Pico carrier: the same W5500 on <strong>SPI0</strong> (SCK&nbsp;18 / MOSI&nbsp;19 / MISO&nbsp;16, mode&nbsp;0/3) with <strong>CSn&nbsp;=&nbsp;GPIO17</strong>, <strong>RSTn&nbsp;=&nbsp;GPIO20</strong>, <strong>INTn&nbsp;=&nbsp;GPIO21</strong> (active-low). Firmware bit-bangs CSn/RSTn as GPIOs and polls or waits on INTn exactly like on hardware; VERSIONR reads <code>0x04</code>, socket IR bits are write-1-to-clear, and SIR is computed from live socket state.</p>
-    <p>Native: <code>./build/bramble firmware.uf2 -board pico-eth</code> for the stub (instant ESTABLISHED, no host sockets), plus <code>-board-live</code> to dial real host TCP/UDP, <code>-board-spi 0|1</code> to move the board (default&nbsp;0). Explicit <code>-sdcard</code>/<code>-emmc</code> flags win the SPI slot on conflict. Browser bench: pick <code>pico-eth</code> in the Board row (SPI + live tickbox); Node: <code>node web/cli.js firmware.uf2 --board pico-eth --board-live</code>. Off by default with zero cost: one flag test in the GPIO/poll hooks, no device attached, no sockets polled.</p>
+    <p>Native: <code>./build/picoemu firmware.uf2 -board pico-eth</code> for the stub (instant ESTABLISHED, no host sockets), plus <code>-board-live</code> to dial real host TCP/UDP, <code>-board-spi 0|1</code> to move the board (default&nbsp;0). Explicit <code>-sdcard</code>/<code>-emmc</code> flags win the SPI slot on conflict. Browser bench: pick <code>pico-eth</code> in the Board row (SPI + live tickbox); Node: <code>node web/cli.js firmware.uf2 --board pico-eth --board-live</code>. Off by default with zero cost: one flag test in the GPIO/poll hooks, no device attached, no sockets polled.</p>
     <p><strong>Version 2?</strong> Yes — <code>pico-eth2</code> is an accepted alias for the RP2350-based WIZnet W5500-EVB-Pico2. It selects the identical model: WIZnet kept the exact same wiring and pins on the Pico2 board (verified against their docs, the Zephyr board DTS, and the MicroPython board ports), so only the SoC changes. On M33/RV32 firmware the RP2350 SPI bases (<code>0x40080000</code>/<code>0x40088000</code>) route to the same SPI instances; GPIO17/20/21 behave identically (SIO base is unchanged at <code>0xD0000000</code>).</p>
     <h3>Run firmware</h3>
-    <p>Native: <code>cmake -S . -B build &amp;&amp; cmake --build build -j</code>, then <code>./build/bramble firmware.uf2 -clock 125</code>. Add <code>-stdin</code> for interactive shells, <code>-wifi</code> for the CYW43, <code>-gdb</code> for remote debugging. The browser bench mirrors every flag with a control on the page.</p>
+    <p>Native: <code>cmake -S . -B build &amp;&amp; cmake --build build -j</code>, then <code>./build/picoemu firmware.uf2 -clock 125</code>. Add <code>-stdin</code> for interactive shells, <code>-wifi</code> for the CYW43, <code>-gdb</code> for remote debugging. The browser bench mirrors every flag with a control on the page.</p>
     <h3>Browser and Node</h3>
     <p><code>./build_wasm.sh</code> produces the WASM pair; serve <code>web/</code> over HTTP and open the bench, or drive it headless with <code>node test-wasm.js</code> and <code>node test-mp-ble-live.mjs</code>. The <code>-pthread</code> threads build needs cross-origin isolation (<code>python3 web/serve_coop.py</code>).</p>
     <h3>Networking and Bluetooth</h3>
     <p>Virtual Ethernet (<code>-net</code>, <code>-net-peer</code>), live sockets (<code>-net-live</code>, <code>web/net_proxy.py</code>), gateway NAT64/DNS64, and BLE either internally (advertise, scan room, GATT loopback) or forwarded to Bumble/RootCanal/physical adapters (<code>-bt-hci</code>, <code>web/hci_bridge.py</code>). Details live in <code>docs/NETWORKING.md</code> and <code>docs/GATEWAY.md</code>.</p>
     <h3>WASM networking: one gateway for WiFi + Ethernet</h3>
-    <p>Yes — WASM fully emulates the W5500 chip (same <code>src/w5500.c</code> registers, sockets, and SPI framing as native). There is a <strong>single gateway</strong>: socket&nbsp;0 in <code>MACRAW</code> mode joins the same vnet bus as CYW43, so guest DHCP/ARP/IP flow as raw Ethernet frames to the same Go gateway (<code>ws://host:5090/api/network-gateway</code>), same room, same DHCP pool. Browser: tick <code>Ethernet via gateway</code> (default on) and open the Gateway panel; the per-frame pump forwards <code>bramble_eth_pop_tx()</code> both ways automatically. Node: pass <code>--gateway …</code> — no proxy sockets needed for the gateway path.</p>
+    <p>Yes — WASM fully emulates the W5500 chip (same <code>src/w5500.c</code> registers, sockets, and SPI framing as native). There is a <strong>single gateway</strong>: socket&nbsp;0 in <code>MACRAW</code> mode joins the same vnet bus as CYW43, so guest DHCP/ARP/IP flow as raw Ethernet frames to the same Go gateway (<code>ws://host:5090/api/network-gateway</code>), same room, same DHCP pool. Browser: tick <code>Ethernet via gateway</code> (default on) and open the Gateway panel; the per-frame pump forwards <code>picoemu_eth_pop_tx()</code> both ways automatically. Node: pass <code>--gateway …</code> — no proxy sockets needed for the gateway path.</p>
     <p>The older per-socket <code>/w5500</code> proxy path (<code>web/net_proxy.py</code> dialing host TCP/UDP per socket) still exists for offload sockets&nbsp;1–7, but it is <em>not</em> a second gateway: it bypasses DHCP/rooms by design. Prefer MACRAW. Full matrix — DHCP, ARP, coexistence, RP2350 — lives in <code>docs/NETWORKING.md</code> under “Ethernet (W5500 MACRAW) support matrix”.</p>
     <h3>Docs map</h3>
     <ul>
@@ -164,7 +164,7 @@
 </main>
 
 <footer class="page-footer">
-  <span>Bramble — a browser bench for RP2040 and RP2350 firmware.</span>
+  <span>Pico-emu — a browser bench for RP2040 and RP2350 firmware.</span>
   <nav aria-label="Footer">
     <a href="./index.html">Bench</a>
     <a href="./about.html">About this project</a>

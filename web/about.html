@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>About — Bramble RP2040/RP2350 emulator</title>
-<meta name="description" content="What Bramble is, how the emulator is built, and how the three CPU cores map onto RP2040 and RP2350 silicon.">
-<link rel="icon" type="image/png" href="./bramble-logo.png">
+<title>About — Pico-emu RP2040/RP2350 emulator</title>
+<meta name="description" content="What Pico-emu is, how the emulator is built, and how the three CPU cores map onto RP2040 and RP2350 silicon.">
+<link rel="icon" type="image/png" href="./picoemu-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -14,10 +14,10 @@
 <body>
 
 <header class="faceplate">
-  <a class="brand" href="./index.html" aria-label="Bramble home">
+  <a class="brand" href="./index.html" aria-label="Pico-emu home">
     <span class="brand-mark" aria-hidden="true"></span>
     <span>
-      <span class="brand-name">Bramble</span><br>
+      <span class="brand-name">Pico-emu</span><br>
       <span class="brand-sub">RP2040 / RP2350 emulator in the browser</span>
     </span>
   </a>
@@ -31,7 +31,7 @@
 <main class="page">
   <div class="page-hero">
     <h1>One bench, three cores, two chips.</h1>
-    <p class="lede">Bramble emulates Raspberry Pi's RP2040 and RP2350 microcontrollers well enough to boot real firmware — littleOS shells, MicroPython, and bare-metal peripheral demos — natively and in the browser through WebAssembly.</p>
+    <p class="lede">Pico-emu emulates Raspberry Pi's RP2040 and RP2350 microcontrollers well enough to boot real firmware — littleOS shells, MicroPython, and bare-metal peripheral demos — natively and in the browser through WebAssembly.</p>
     <div class="facts">
       <span class="fact">426 sweep-locked tests</span>
       <span class="fact">Cortex-M0+ / M33 / Hazard3 RV32</span>
@@ -41,7 +41,7 @@
 
   <div class="prose">
     <h2>What this project is</h2>
-    <p>Bramble is a from-scratch emulator for the RP2040 (dual Cortex-M0+) and the RP2350 (dual Cortex-M33 or dual Hazard3 RISC-V, switched at boot). It loads UF2 and ELF images, models flash, SRAM, the boot path, interrupts, SysTick, and the full peripheral set, and it runs unmodified firmware: the same <code>littleos.uf2</code> or MicroPython build you would flash onto a Pico.</p>
+    <p>Pico-emu is a from-scratch emulator for the RP2040 (dual Cortex-M0+) and the RP2350 (dual Cortex-M33 or dual Hazard3 RISC-V, switched at boot). It loads UF2 and ELF images, models flash, SRAM, the boot path, interrupts, SysTick, and the full peripheral set, and it runs unmodified firmware: the same <code>littleos.uf2</code> or MicroPython build you would flash onto a Pico.</p>
     <p>The emulation core is a port of <a href="https://github.com/Night-Traders-Dev/Bramble">Night-Traders-Dev/Bramble</a> (MIT), extended here with M33 and RISC-V cores, VFP single-precision, a double-precision unit, and host-threaded dual-core execution. The WebAssembly build compiles those exact sources with Emscripten, so the browser bench and the native binary agree instruction for instruction.</p>
 
     <h2>How it is put together</h2>
@@ -49,7 +49,7 @@
     <ol>
       <li><strong>Cores.</strong> An O(1)-dispatch Thumb engine shared by M0+ and M33 (M33 adds Thumb-2, BASEPRI, its own CPUID, VFP/DCP floating point on top), plus a separate Hazard3 RV32IMAC engine with Zba/Zbb/Zbs/Zcb/Zcmp extensions, CSRs, CLINT, and semihosting.</li>
       <li><strong>Memory and peripherals.</strong> A routed bus (flash/XIP, SRAM, ROM function table, NVIC, SysTick, GPIO, UART, SPI, I2C, PWM, ADC, DMA, PIO, USB, clocks, watchdog, RTC), RP2350 additions (520&nbsp;KB SRAM, 32&nbsp;KB ROM, TIMER1, PIO2, QMI, OTP, BOOTRAM, POWMAN, TICKS), and device models on top (CYW43 WiFi/BT, W5500 Ethernet, SD/eMMC, sensors).</li>
-      <li><strong>Hosts.</strong> A native CLI for speed and scripting, and a WASM embedding (<code>bramble_step</code> + UART/GPIO/memory exports) that the browser bench, a Node CLI, GDB-over-WebSocket, and virtual-network bridges all share.</li>
+      <li><strong>Hosts.</strong> A native CLI for speed and scripting, and a WASM embedding (<code>picoemu_step</code> + UART/GPIO/memory exports) that the browser bench, a Node CLI, GDB-over-WebSocket, and virtual-network bridges all share.</li>
     </ol>
 
     <div class="arch-diagram">firmware.uf2 ──▶ loader ──┬──▶ Cortex-M0+ ──▶ RP2040 bus ──▶ peripherals ──▶ host
@@ -69,7 +69,7 @@
 
     <div class="callout">
       <strong>RP2350A or RP2350B?</strong>
-      Both, as far as software can tell. A and B are package variants of the same die: 30 versus 48 GPIO pins (and 4 versus 8 ADC channels, 16 versus 24 PWM channels). Bramble models the full 48-pin die, so firmware written for either package runs; pins 30–47 simply stay quiet on A-package builds.
+      Both, as far as software can tell. A and B are package variants of the same die: 30 versus 48 GPIO pins (and 4 versus 8 ADC channels, 16 versus 24 PWM channels). Pico-emu models the full 48-pin die, so firmware written for either package runs; pins 30–47 simply stay quiet on A-package builds.
     </div>
 
     <h2>What runs on it</h2>
@@ -86,7 +86,7 @@
 </main>
 
 <footer class="page-footer">
-  <span>Bramble — a browser bench for RP2040 and RP2350 firmware.</span>
+  <span>Pico-emu — a browser bench for RP2040 and RP2350 firmware.</span>
   <nav aria-label="Footer">
     <a href="./index.html">Bench</a>
     <a href="./docs.html">Support tables</a>

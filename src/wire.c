@@ -1,5 +1,5 @@
 /*
- * Bramble Wire Protocol - Inter-Instance Communication
+ * Pico-emu Wire Protocol - Inter-Instance Communication
  *
  * Uses Unix domain sockets for low-latency IPC between emulator instances.
  * First instance to access a socket path creates it (server).

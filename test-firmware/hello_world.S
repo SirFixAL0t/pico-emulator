@@ -1,5 +1,5 @@
 /*
- * Hello World Test - Fixed memory addresses for Bramble
+ * Hello World Test - Fixed memory addresses for Pico-emu
  * 
  * Memory Layout (RP2040):
  *   Vector table:   0x10000100 - 0x10000140 (after boot2)
@@ -90,8 +90,8 @@ done:
 
 message:
 #ifdef RP2350
-    .asciz "Hello from Bramble RP2350 M33 Emulator!\n"
+    .asciz "Hello from Pico-emu RP2350 M33 Emulator!\n"
 #else
-    .asciz "Hello from Bramble RP2040 Emulator!\n"
+    .asciz "Hello from Pico-emu RP2040 Emulator!\n"
 #endif
     .align 2

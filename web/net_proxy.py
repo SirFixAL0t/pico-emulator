@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bramble WASM net/GDB proxy (stdlib only, no deps).
+"""Pico-emu WASM net/GDB proxy (stdlib only, no deps).
 
 Bridges browser WebSockets <-> host TCP so WASM features that need raw
 sockets can work with real networking:

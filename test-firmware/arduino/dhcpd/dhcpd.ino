@@ -5,7 +5,7 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   Serial.println("DHCP-START");
-  WiFi.begin("BrambleNet", "testpassword");
+  WiFi.begin("Pico-emuNet", "testpassword");
   for (int i = 0; i < 20; i++) {
     delay(1000);
     cyw43_arch_poll();

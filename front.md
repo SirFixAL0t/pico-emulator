@@ -1,14 +1,14 @@
 ---
-title: "Bramble Emulator: Technical Reference Manual"
+title: "Pico-emu Emulator: Technical Reference Manual"
 author: "Development Documentation"
 date: \today
 ---
 
 # Introduction {.unnumbered}
 
-Bramble is a high-fidelity development and debugging tool for the Raspberry Pi
+Pico-emu is a high-fidelity development and debugging tool for the Raspberry Pi
 RP2040 and RP2350 microcontroller ecosystem. Unlike high-level simulators,
-Bramble focuses on register-level accuracy, allowing unmodified firmware
+Pico-emu focuses on register-level accuracy, allowing unmodified firmware
 binaries---including those from the Pico SDK, MicroPython, CircuitPython, and
 littleOS---to execute in a controlled, virtualized environment.
 

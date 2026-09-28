@@ -17,20 +17,20 @@
  *   - Interrupt delivery signals the condvar to wake sleeping cores
  *
  * Multi-instance coordination:
- *   - Shared registry file tracks running bramble instances
+ *   - Shared registry file tracks running picoemu instances
  *   - Each instance registers its PID and core count
  *   - Dynamic allocation: new instances check available host CPUs
  *     and adjust core count to avoid oversubscription
  *   - `-cores auto` queries the pool for optimal allocation
  *
  * Usage:
- *   ./bramble firmware.uf2 -cores 2          # Explicit 2 cores
- *   ./bramble firmware.uf2 -cores 1          # Single-core mode
- *   ./bramble firmware.uf2 -cores auto       # Auto-detect from pool
+ *   ./picoemu firmware.uf2 -cores 2          # Explicit 2 cores
+ *   ./picoemu firmware.uf2 -cores 1          # Single-core mode
+ *   ./picoemu firmware.uf2 -cores auto       # Auto-detect from pool
  * ======================================================================== */
 
-#define COREPOOL_REGISTRY_PATH  "/tmp/bramble-corepool.reg"
-#define COREPOOL_REGISTRY_ENV   "BRAMBLE_COREPOOL_REGISTRY"
+#define COREPOOL_REGISTRY_PATH  "/tmp/picoemu-corepool.reg"
+#define COREPOOL_REGISTRY_ENV   "PICOEMU_COREPOOL_REGISTRY"
 #define COREPOOL_MAX_INSTANCES  16
 
 /* Per-instance registration entry */

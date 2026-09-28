@@ -6,7 +6,7 @@
 // FQBN: rp2040:rp2040:wiznet_5500_evb_pico2
 // Prints ETHDHCP-START, then ETH-BEGIN-OK, then ETH-TICK lines with ip=.
 // Emulator run (needs a live peer — Arduino DHCP has no dead-peer marker):
-//   ./build/bramble /tmp/ethdhcp_m33/out/ethdhcp_m33.ino.uf2 -board pico-eth2 \
+//   ./build/picoemu /tmp/ethdhcp_m33/out/ethdhcp_m33.ino.uf2 -board pico-eth2 \
 //       -net-peer /tmp/ethdhcp.sock
 //   python3 test-firmware/dhcp_peer_test.py /tmp/ethdhcp.sock
 // Expect: ALL DHCP CHECKS PASSED + ip=192.168.4.2 on UART.

@@ -1001,7 +1001,7 @@ void cpu_exception_entry(uint32_t vector_num) {
                    cpu.r[15]);
         }
         cores[ac].is_halted = 1;
-        { FILE *f = fopen("/tmp/bramble_arena.bin", "w");
+        { FILE *f = fopen("/tmp/picoemu_arena.bin", "w");
           if (f) {
             for (uint32_t a = 0x20004F2Cu; a < 0x20043A8Cu; a += 4) {
               uint32_t w = mem_read32(a);
@@ -1900,7 +1900,7 @@ void cpu_step_core(int core_id) {
 
 /* Host-poll hook for the WFI/WFE fast-forward path (see emulator.h).
  * Set by the owner (main.c cooperative loop); NULL in threaded mode. */
-void (*bramble_ff_poll_hook)(void) = NULL;
+void (*picoemu_ff_poll_hook)(void) = NULL;
 
 void dual_core_step(void) {
     static int current = 0;
@@ -1930,15 +1930,15 @@ void dual_core_step(void) {
                  * polls still run every iteration; the pending-IRQ check
                  * below wakes the core as soon as the NA lands. Window
                  * expires on its own (see cyw43.c snoop). */
-                if (bramble_nd_wait_until_ms != 0) {
+                if (picoemu_nd_wait_until_ms != 0) {
                     struct timespec ts;
                     clock_gettime(CLOCK_MONOTONIC, &ts);
                     uint64_t now_ms = (uint64_t)ts.tv_sec * 1000u +
                                       (uint64_t)ts.tv_nsec / 1000000u;
-                    if (now_ms < bramble_nd_wait_until_ms) {
+                    if (now_ms < picoemu_nd_wait_until_ms) {
                         chunk_us = 0;
                     } else {
-                        bramble_nd_wait_until_ms = 0;
+                        picoemu_nd_wait_until_ms = 0;
                     }
                 }
                 /* SysTick keeps running while cores are asleep. */
@@ -1955,8 +1955,8 @@ void dual_core_step(void) {
                 /* Service host I/O while the guest sleeps: without this,
                  * the main loop's step-count polls starve across multi-ms
                  * fast-forward chunks (socket accepts/RX delayed seconds). */
-                if (bramble_ff_poll_hook)
-                    bramble_ff_poll_hook();
+                if (picoemu_ff_poll_hook)
+                    picoemu_ff_poll_hook();
                 ff_us = chunk_us;
             } else {
                 /* SysTick keeps running while the core is asleep. */

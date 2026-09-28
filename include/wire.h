@@ -5,9 +5,9 @@
 #include <stdint.h>
 
 /* ========================================================================
- * Bramble Wire Protocol - Inter-Instance Communication
+ * Pico-emu Wire Protocol - Inter-Instance Communication
  *
- * Connects multiple Bramble emulator instances for multi-device testing.
+ * Connects multiple Pico-emu emulator instances for multi-device testing.
  * Each instance runs as a separate process, communicating via Unix domain
  * sockets or TCP.
  *
@@ -16,8 +16,8 @@
  *   GPIO: Mirrors GPIO pin state between instances
  *
  * Usage:
- *   Instance A: ./bramble fw_a.uf2 -wire-uart0 /tmp/bramble_uart0.sock
- *   Instance B: ./bramble fw_b.uf2 -wire-uart0 /tmp/bramble_uart0.sock
+ *   Instance A: ./picoemu fw_a.uf2 -wire-uart0 /tmp/picoemu_uart0.sock
+ *   Instance B: ./picoemu fw_b.uf2 -wire-uart0 /tmp/picoemu_uart0.sock
  *
  * The first instance to start creates the socket and listens.
  * The second instance connects. UART TX on either side is delivered

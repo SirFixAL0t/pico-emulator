@@ -180,11 +180,11 @@ void w5500_set_live(w5500_t *dev, int enable);
 /* WASM proxy pump: drain queued CONNECT/LISTEN/CLOSE/SEND bytes into
  * out[] (up to maxlen). Returns bytes drained, 0 when empty. JS pumps
  * this each frame/tick to the proxy socket (same pairing as
- * bramble_eth_pop_tx / bramble_bt_hci_pop_tx). Always linked (queue is
+ * picoemu_eth_pop_tx / picoemu_bt_hci_pop_tx). Always linked (queue is
  * plain C); only non-empty when live WASM traffic queued. */
-int bramble_w5500_pop_tx(uint8_t *out, int maxlen);
+int picoemu_w5500_pop_tx(uint8_t *out, int maxlen);
 /* Queued proxy bytes waiting (for pump loop budgeting). */
-int bramble_w5500_tx_len(void);
+int picoemu_w5500_tx_len(void);
 /* Queue raw proxy bytes (w5500.c command path + wasm_net.c compat shim). */
 void w5500_ws_tx_push(const uint8_t *data, int len);
 
@@ -211,11 +211,11 @@ int w5500_gw_enabled(void);
  * device attached), no sockets polled.
  *
  * Usage (native):
- *   ./bramble fw.uf2 -board pico-eth            # stub (instant ESTABLISHED)
- *   ./bramble fw.uf2 -board pico-eth2           # same model, RP2350 label
- *   ./bramble fw.uf2 -board pico-eth -net-live  # real host TCP/UDP sockets
+ *   ./picoemu fw.uf2 -board pico-eth            # stub (instant ESTABLISHED)
+ *   ./picoemu fw.uf2 -board pico-eth2           # same model, RP2350 label
+ *   ./picoemu fw.uf2 -board pico-eth -net-live  # real host TCP/UDP sockets
  * Usage (WASM):
- *   bramble_board_eth(1, live, 0)
+ *   picoemu_board_eth(1, live, 0)
  * ======================================================================== */
 
 #define W5500_BOARD_SPI_DEFAULT  0

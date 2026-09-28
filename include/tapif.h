@@ -4,7 +4,7 @@
  * Creates a Linux TAP virtual network interface and bridges
  * Ethernet frames between the emulated CYW43 and the host network.
  *
- * Usage: ./bramble firmware.uf2 -wifi -tap <ifname>
+ * Usage: ./picoemu firmware.uf2 -wifi -tap <ifname>
  *
  * Linux only (requires /dev/net/tun).
  */

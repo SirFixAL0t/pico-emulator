@@ -30,9 +30,9 @@
  *   CMD58 (READ_OCR)           - Read OCR register
  *
  * Usage:
- *   ./bramble firmware.uf2 -emmc emmc.img
- *   ./bramble firmware.uf2 -emmc emmc.img -emmc-size 128
- *   ./bramble firmware.uf2 -emmc emmc.img -emmc-spi 1
+ *   ./picoemu firmware.uf2 -emmc emmc.img
+ *   ./picoemu firmware.uf2 -emmc emmc.img -emmc-size 128
+ *   ./picoemu firmware.uf2 -emmc emmc.img -emmc-spi 1
  * ======================================================================== */
 
 #define EMMC_BLOCK_SIZE     512

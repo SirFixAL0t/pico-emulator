@@ -73,7 +73,7 @@ static void build_emmc_csd(uint8_t *csd, size_t card_size) {
 
 static void build_emmc_cid(uint8_t *cid) {
     memset(cid, 0, 16);
-    cid[0]  = 0x45;            /* MID: Bramble eMMC */
+    cid[0]  = 0x45;            /* MID: Pico-emu eMMC */
     cid[1]  = 0x00;            /* reserved (eMMC) */
     cid[2]  = 0x00;            /* OID */
     cid[3]  = 'B';             /* PNM: "BRMMC" */

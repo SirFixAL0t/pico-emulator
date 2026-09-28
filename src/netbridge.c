@@ -1,5 +1,5 @@
 /*
- * Bramble Network Bridge - UART to TCP
+ * Pico-emu Network Bridge - UART to TCP
  *
  * Bridges UART peripherals to TCP sockets for network communication.
  * Supports listen (server) and connect (client) modes.

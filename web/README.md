@@ -35,32 +35,32 @@ import createEmu from 'picoemu';
 import fs from 'fs';
 
 const mod = await createEmu({ print: () => {}, printErr: () => {} });
-mod._bramble_init(1);            // 0=M0+ 1=RV32 2=M33
-mod._bramble_set_clock(125);     // MHz
+mod._picoemu_init(1);            // 0=M0+ 1=RV32 2=M33
+mod._picoemu_set_clock(125);     // MHz
 const uf2 = new Uint8Array(fs.readFileSync('hello_rv32.uf2'));
 const ptr = mod._malloc(uf2.length);
 mod.HEAPU8.set(uf2, ptr);
-mod._bramble_load_uf2(ptr, uf2.length);
+mod._picoemu_load_uf2(ptr, uf2.length);
 mod._free(ptr);
-mod._bramble_reset();
-mod._bramble_step(200000);       // run N instructions
+mod._picoemu_reset();
+mod._picoemu_step(200000);       // run N instructions
 
 let ch, out = '';
-while ((ch = mod._bramble_read_uart(0)) !== -1) out += String.fromCharCode(ch);
-console.log(out);                // Hello from Bramble RV32!
-mod._bramble_write_uart(65);     // send 'A' to firmware
+while ((ch = mod._picoemu_read_uart(0)) !== -1) out += String.fromCharCode(ch);
+console.log(out);                // Hello from Pico-emu RV32!
+mod._picoemu_write_uart(65);     // send 'A' to firmware
 ```
 
-More entry points: `_bramble_load_elf`, `_bramble_get_gpio` /
-`_bramble_set_gpio`, `_bramble_mem_read32` / `_bramble_mem_write32`,
-`_bramble_set_cores`, `_bramble_is_halted`. Full reference with every
+More entry points: `_picoemu_load_elf`, `_picoemu_get_gpio` /
+`_picoemu_set_gpio`, `_picoemu_mem_read32` / `_picoemu_mem_write32`,
+`_picoemu_set_cores`, `_picoemu_is_halted`. Full reference with every
 export: [docs/PICOEMU.md](https://github.com/danish9661/picoemu/blob/main/docs/PICOEMU.md).
 
 ## Browser
 
 `index.html` is a ready-made UI (serial monitor, GPIO viewer, three demo
 dropdowns: RP2040 / M33 / RV32). Serve the package dir and open it, or copy
-`bramble.wasm.*` + `index.html` into your app.
+`picoemu.wasm.*` + `index.html` into your app.
 
 ## Firmware in this package
 

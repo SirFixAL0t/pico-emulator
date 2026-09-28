@@ -6,7 +6,7 @@
  * condition variables for WFI/WFE sleep optimization.
  *
  * Multi-instance coordination uses a shared file registry so multiple
- * bramble processes can detect each other and avoid oversubscribing
+ * picoemu processes can detect each other and avoid oversubscribing
  * the host CPU.
  */
 
@@ -96,7 +96,7 @@ void corepool_set_step_quantum(int quantum) {
 /* ========================================================================
  * Multi-Instance Registry
  *
- * A simple file-based registry at /tmp/bramble-corepool.reg.
+ * A simple file-based registry at /tmp/picoemu-corepool.reg.
  * Each line: PID CORES ACTIVE
  * File-locked (flock) during read/write for process safety.
  * Stale entries (dead PIDs) are cleaned on each access.

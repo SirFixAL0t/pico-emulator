@@ -11,7 +11,7 @@ void setup() {
   delay(2000);
   Serial.println("COAPS-START");
   WiFi.config(IPAddress(192, 168, 4, 210), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-  WiFi.begin("BrambleNet", "testpassword");
+  WiFi.begin("Pico-emuNet", "testpassword");
   delay(3000);
   Serial.print("COAPS-LINK=");
   Serial.println(WiFi.status());

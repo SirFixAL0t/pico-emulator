@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(Bramble
+project(Pico-emu
     VERSION 0.50.0
     DESCRIPTION "A lightweight RP2040/RP2350 emulator in C"
     LANGUAGES C
@@ -95,32 +95,32 @@ set(COMMON_LIBS m pthread ${FUSE_LIBS})
 # ========================================================================
 
 # Main executable
-add_executable(bramble src/main.c ${EMU_SOURCES})
-target_link_libraries(bramble ${COMMON_LIBS})
-add_custom_command(TARGET bramble POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:bramble> ${CMAKE_SOURCE_DIR}/bramble
-    COMMENT "Copying bramble to project root"
+add_executable(picoemu src/main.c ${EMU_SOURCES})
+target_link_libraries(picoemu ${COMMON_LIBS})
+add_custom_command(TARGET picoemu POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:picoemu> ${CMAKE_SOURCE_DIR}/picoemu
+    COMMENT "Copying picoemu to project root"
 )
 
 # Test executable
 enable_testing()
-add_executable(bramble_tests tests/test_suite.c ${EMU_SOURCES})
-target_link_libraries(bramble_tests ${COMMON_LIBS})
-add_test(NAME bramble_tests COMMAND bramble_tests)
+add_executable(picoemu_tests tests/test_suite.c ${EMU_SOURCES})
+target_link_libraries(picoemu_tests ${COMMON_LIBS})
+add_test(NAME picoemu_tests COMMAND picoemu_tests)
 
 # Benchmark executable
-add_executable(bramble_bench tests/benchmark.c ${EMU_SOURCES})
-target_link_libraries(bramble_bench ${COMMON_LIBS})
+add_executable(picoemu_bench tests/benchmark.c ${EMU_SOURCES})
+target_link_libraries(picoemu_bench ${COMMON_LIBS})
 
 # Install target
-install(TARGETS bramble DESTINATION bin)
+install(TARGETS picoemu DESTINATION bin)
 
 # ========================================================================
 # Build summary
 # ========================================================================
 
 message(STATUS "")
-message(STATUS "Bramble RP2040 Emulator v${PROJECT_VERSION}")
+message(STATUS "Pico-emu RP2040 Emulator v${PROJECT_VERSION}")
 message(STATUS "  Build type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "  FUSE mount:    ${ENABLE_FUSE}")
 message(STATUS "  C compiler:    ${CMAKE_C_COMPILER}")

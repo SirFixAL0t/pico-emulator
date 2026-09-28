@@ -110,7 +110,7 @@ All peripherals support RP2040 atomic register aliases (SET/CLR/XOR).
 ./build.sh
 ```
 
-This builds the `bramble` executable in the project root.
+This builds the `picoemu` executable in the project root.
 
 You can also build explicitly with CMake:
 
@@ -125,21 +125,21 @@ See `docs/WASM.md` for full guide. Quick start:
 
 ```bash
 ./emsdk/emsdk_env.sh
-./build_wasm.sh          # emcc -O3 -msimd128 web/bramble.wasm.{js,wasm} 156K
+./build_wasm.sh          # emcc -O3 -msimd128 web/picoemu.wasm.{js,wasm} 156K
 python3 -m http.server 8080 --directory web  # http://localhost:8080
 # Preset firmware: hello_world, gpio_test, timer_test, interrupt_test, name_prompt, littleos (M0), littleos_pico2 (M33), littleos_pico2_riscv (RV32) in web/ and web/examples/
 ```
 
-Browser UI `web/index.html` provides drag-drop UF2/ELF, serial monitor, GPIO 0-29 viewer, core PC/SP/halted/MIPS, clock select, and `BrambleModule({print,printErr:console.log})` to avoid red console.
+Browser UI `web/index.html` provides drag-drop UF2/ELF, serial monitor, GPIO 0-29 viewer, core PC/SP/halted/MIPS, clock select, and `PicoemuModule({print,printErr:console.log})` to avoid red console.
 
 ### Choose Core Mode
 
-Bramble builds with dual-core support enabled by default. Select the active cores at runtime:
+Pico-emu builds with dual-core support enabled by default. Select the active cores at runtime:
 
 ```bash
-./bramble firmware.uf2 -cores 1
-./bramble firmware.uf2 -cores 2
-./bramble firmware.uf2 -cores auto
+./picoemu firmware.uf2 -cores 1
+./picoemu firmware.uf2 -cores 2
+./picoemu firmware.uf2 -cores auto
 ```
 
 ### Build Test Firmware
@@ -186,18 +186,18 @@ cd test-firmware
 **UF2 Firmware:**
 
 ```bash
-./bramble hello_world.uf2
-./bramble gpio_test.uf2
-./bramble timer_test.uf2
-./bramble alarm_test.uf2
-./bramble name_prompt.uf2 -stdin
-printf 'Ada\n' | ./bramble name_prompt.uf2 -stdin
+./picoemu hello_world.uf2
+./picoemu gpio_test.uf2
+./picoemu timer_test.uf2
+./picoemu alarm_test.uf2
+./picoemu name_prompt.uf2 -stdin
+printf 'Ada\n' | ./picoemu name_prompt.uf2 -stdin
 ```
 
 **ELF Firmware** (auto-detected by extension):
 
 ```bash
-./bramble firmware.elf
+./picoemu firmware.elf
 ```
 
 ### Run Tests
@@ -208,76 +208,76 @@ ctest --test-dir build --output-on-failure
 
 ### Debug Modes
 
-Bramble now supports flexible debug output modes:
+Pico-emu now supports flexible debug output modes:
 
 **Single-Core CPU Step Tracing** (verbose CPU and peripheral logging):
 ```bash
-./bramble -debug timer_test.uf2
+./picoemu -debug timer_test.uf2
 ```
 
 **Assembly Instruction Tracing** (detailed POP/BX/branch operations):
 ```bash
-./bramble -asm alarm_test.uf2
+./picoemu -asm alarm_test.uf2
 ```
 
 **Combined Debug + Assembly Tracing:**
 ```bash
-./bramble -debug -asm alarm_test.uf2
+./picoemu -debug -asm alarm_test.uf2
 ```
 
 **No Debug Output:**
 ```bash
-./bramble hello_world.uf2
+./picoemu hello_world.uf2
 ```
 
 **Dual-Core Specific:**
 ```bash
-./bramble firmware.uf2 -debug           # Core 0 debug output
-./bramble firmware.uf2 -debug -debug1   # Both cores debug
-./bramble firmware.uf2 -status          # Periodic status updates
-./bramble firmware.uf2 -debug -status   # Debug + status combined
-./bramble firmware.uf2 -stdin           # Route stdin to USB CDC when active, else UART0
-./bramble firmware.uf2 -gdb            # Start GDB server on port 3333
-./bramble firmware.uf2 -gdb 4444       # GDB server on custom port
-./bramble firmware.uf2 -clock 125      # Real RP2040 timing (125 MHz)
-./bramble firmware.uf2 -flash fs.bin   # Persistent flash storage
-./bramble firmware.uf2 -debug-mem      # Log unmapped peripheral access
-./bramble firmware.uf2 -jit            # Enable JIT for hot flash/ROM loops
-./bramble firmware.uf2 -cores 2 -thread-quantum 128  # Tune threaded timeslice
+./picoemu firmware.uf2 -debug           # Core 0 debug output
+./picoemu firmware.uf2 -debug -debug1   # Both cores debug
+./picoemu firmware.uf2 -status          # Periodic status updates
+./picoemu firmware.uf2 -debug -status   # Debug + status combined
+./picoemu firmware.uf2 -stdin           # Route stdin to USB CDC when active, else UART0
+./picoemu firmware.uf2 -gdb            # Start GDB server on port 3333
+./picoemu firmware.uf2 -gdb 4444       # GDB server on custom port
+./picoemu firmware.uf2 -clock 125      # Real RP2040 timing (125 MHz)
+./picoemu firmware.uf2 -flash fs.bin   # Persistent flash storage
+./picoemu firmware.uf2 -debug-mem      # Log unmapped peripheral access
+./picoemu firmware.uf2 -jit            # Enable JIT for hot flash/ROM loops
+./picoemu firmware.uf2 -cores 2 -thread-quantum 128  # Tune threaded timeslice
 ```
 
 **RP2350 RISC-V Mode:**
 
 ```bash
 # Explicit architecture selection
-./bramble firmware_rv.uf2 -arch rv32
+./picoemu firmware_rv.uf2 -arch rv32
 
 # Auto-detected from UF2 family ID (0xE48BFF5A) or ELF machine type
-./bramble pico2_rv_firmware.uf2
+./picoemu pico2_rv_firmware.uf2
 
 # With clock speed and flash persistence
-./bramble firmware_rv.uf2 -arch rv32 -clock 150 -flash rv_flash.bin -stdin
+./picoemu firmware_rv.uf2 -arch rv32 -clock 150 -flash rv_flash.bin -stdin
 ```
 
 **Networking (UART-to-TCP bridge):**
 
 ```bash
 # Bridge UART0 to TCP port (connect with nc, minicom, etc.)
-./bramble firmware.uf2 -net-uart0 9999 -stdin
+./picoemu firmware.uf2 -net-uart0 9999 -stdin
 # In another terminal: nc localhost 9999
 
 # Connect UART0 to a remote host
-./bramble firmware.uf2 -net-uart0-connect 192.168.1.10:9999
+./picoemu firmware.uf2 -net-uart0-connect 192.168.1.10:9999
 ```
 
 **Multi-Device Wiring (inter-instance communication):**
 
 ```bash
 # Terminal 1: Instance A with UART0 wired via Unix socket
-./bramble fw_sensor.uf2 -wire-uart0 /tmp/uart_link.sock -stdin
+./picoemu fw_sensor.uf2 -wire-uart0 /tmp/uart_link.sock -stdin
 
 # Terminal 2: Instance B with UART0 wired to the same socket
-./bramble fw_controller.uf2 -wire-uart0 /tmp/uart_link.sock -stdin
+./picoemu fw_controller.uf2 -wire-uart0 /tmp/uart_link.sock -stdin
 
 # UART TX on either side arrives as UART RX on the other
 # GPIO pins can also be wired: -wire-gpio /tmp/gpio_link.sock
@@ -287,87 +287,87 @@ Bramble now supports flexible debug output modes:
 
 ```bash
 # Basic Pico W/CYW43 emulation
-./bramble firmware.uf2 -wifi
+./picoemu firmware.uf2 -wifi
 
 # Bridge emulated WLAN frames to a host TAP interface
-./bramble firmware.uf2 -wifi -tap tap0
+./picoemu firmware.uf2 -wifi -tap tap0
 ```
 
 **Virtual Network (Internet Bridge + Mesh):**
 
 ```bash
 # Single-command internet bridge (auto-creates TAP, NAT, sudo)
-./bramble firmware.uf2 -net -stdin
+./picoemu firmware.uf2 -net -stdin
 
-# Mesh two Bramble instances via Ethernet-level peer link
-./bramble fw1.uf2 -net-peer /tmp/vnet.sock -stdin   # Terminal 1
-./bramble fw2.uf2 -net-peer /tmp/vnet.sock -stdin   # Terminal 2
+# Mesh two Pico-emu instances via Ethernet-level peer link
+./picoemu fw1.uf2 -net-peer /tmp/vnet.sock -stdin   # Terminal 1
+./picoemu fw2.uf2 -net-peer /tmp/vnet.sock -stdin   # Terminal 2
 
 # W5500 live networking (real host TCP/UDP sockets)
-./bramble w5500_firmware.uf2 -net -net-live -stdin
+./picoemu w5500_firmware.uf2 -net -net-live -stdin
 
 # pico-eth board (WIZnet W5500-EVB-Pico, RP2040) /
 # pico-eth2 board (WIZnet W5500-EVB-Pico2, RP2350): W5500 on SPI0 with real
 # board pins (CSn=GPIO17, RSTn=GPIO20, INTn=GPIO21). Identical wiring on
 # both boards — only the SoC differs. Off unless requested.
-./bramble w5500_firmware.uf2 -board pico-eth -stdin            # stub
-./bramble w5500_firmware.uf2 -board pico-eth -board-live -stdin  # live
-./bramble w5500_firmware.uf2 -board pico-eth -board-spi 1 -stdin # on SPI1
-./bramble w5500_firmware.uf2 -board pico-eth2 -stdin           # Pico2 label
+./picoemu w5500_firmware.uf2 -board pico-eth -stdin            # stub
+./picoemu w5500_firmware.uf2 -board pico-eth -board-live -stdin  # live
+./picoemu w5500_firmware.uf2 -board pico-eth -board-spi 1 -stdin # on SPI1
+./picoemu w5500_firmware.uf2 -board pico-eth2 -stdin           # Pico2 label
 
 # In-tree W5500 guests (no toolchain needed — UF2s ship in web/):
 # full DORA via the python peer (terminal 1 = guest, terminal 2 = peer):
-./bramble web/eth_dhcp.uf2 -board pico-eth -net-peer /tmp/eth.sock -clock 125
+./picoemu web/eth_dhcp.uf2 -board pico-eth -net-peer /tmp/eth.sock -clock 125
 python3 test-firmware/dhcp_peer_test.py /tmp/eth.sock  # ALL DHCP CHECKS PASSED
 # DORA + HTTP client (ARP -> SYN -> GET -> 200 hello-eth -> FIN):
-./bramble web/eth_http.uf2 -board pico-eth -net-peer /tmp/eth.sock -clock 125
+./picoemu web/eth_http.uf2 -board pico-eth -net-peer /tmp/eth.sock -clock 125
 python3 test-firmware/http_peer_test.py /tmp/eth.sock  # ALL HTTP CHECKS PASSED
 # M33: web/eth_dhcp_pico2.uf2 + -board pico-eth2; RV32: web/eth_dhcp_rv32.uf2 -arch rv32
 # Same DORA against the real Go gateway (needs openhw-studio-gateway running):
-./bramble web/eth_dhcp.uf2 -board pico-eth -net -net-peer /tmp/gw.sock
+./picoemu web/eth_dhcp.uf2 -board pico-eth -net -net-peer /tmp/gw.sock
 python3 web/gateway_bridge.py --sock /tmp/gw.sock --room lab  # lease .2
 
 # Wire Ethernet frames between instances
-./bramble fw_sensor.uf2 -wire-eth /tmp/mesh.sock -stdin
-./bramble fw_ctrl.uf2 -wire-eth /tmp/mesh.sock -stdin
+./picoemu fw_sensor.uf2 -wire-eth /tmp/mesh.sock -stdin
+./picoemu fw_ctrl.uf2 -wire-eth /tmp/mesh.sock -stdin
 ```
 
 **Software-Defined Devices (SDD):**
 
 ```bash
 # Attach a TMP102 thermometer on I2C0 at 0x48
-./bramble firmware.uf2 -sdd thermometer
+./picoemu firmware.uf2 -sdd thermometer
 
 # Custom temperature, bus, and address
-./bramble firmware.uf2 -sdd thermometer:temp=37.5,i2c=1,addr=0x49
+./picoemu firmware.uf2 -sdd thermometer:temp=37.5,i2c=1,addr=0x49
 ```
 
 **I2C EEPROM** (24LC256, 32KB, addr `0x50`):
 ```bash
-./bramble firmware.uf2 -sdd eeprom
-./bramble firmware.uf2 -sdd eeprom:i2c=1,addr=0x51,file=eeprom.bin
+./picoemu firmware.uf2 -sdd eeprom
+./picoemu firmware.uf2 -sdd eeprom:i2c=1,addr=0x51,file=eeprom.bin
 
 # Combine with mesh networking
-./bramble fw_sensor.uf2 -wire-eth /tmp/mesh.sock -sdd thermometer:temp=42
+./picoemu fw_sensor.uf2 -wire-eth /tmp/mesh.sock -sdd thermometer:temp=42
 ```
 
 **Storage Devices (SD Card / eMMC):**
 
 ```bash
 # Attach a 32MB SD card image on SPI1 (default)
-./bramble firmware.uf2 -sdcard sdcard.img -sdcard-size 32
+./picoemu firmware.uf2 -sdcard sdcard.img -sdcard-size 32
 
 # Attach SD card on SPI0 instead
-./bramble firmware.uf2 -sdcard sdcard.img -sdcard-spi 0
+./picoemu firmware.uf2 -sdcard sdcard.img -sdcard-spi 0
 
 # Attach a 64MB eMMC image on SPI0 (default)
-./bramble firmware.uf2 -emmc emmc.img -emmc-size 64
+./picoemu firmware.uf2 -emmc emmc.img -emmc-size 64
 
 # Attach eMMC on SPI1 instead
-./bramble firmware.uf2 -emmc emmc.img -emmc-spi 1
+./picoemu firmware.uf2 -emmc emmc.img -emmc-spi 1
 
 # Combine with flash persistence and MicroPython
-./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin -sdcard sd.img
+./picoemu python/micropython.uf2 -stdin -clock 125 -flash mpy.bin -sdcard sd.img
 ```
 
 **MicroPython REPL:**
@@ -376,7 +376,7 @@ Verified: bundled v1.22.1 boots to `>>>` over USB CDC and evaluates
 (`print(6*7)` → `42`), native and in-browser (`node test-wasm.js` asserts both).
 
 ```bash
-./bramble python/micropython.uf2 -stdin -clock 125 -flash mpy.bin
+./picoemu python/micropython.uf2 -stdin -clock 125 -flash mpy.bin
 ```
 
 Output:
@@ -389,7 +389,7 @@ Type "help()" for more information.
 **GDB Remote Debugging:**
 ```bash
 # Terminal 1: Start emulator with GDB server
-./bramble firmware.uf2 -gdb
+./picoemu firmware.uf2 -gdb
 
 # Terminal 2: Connect GDB
 arm-none-eabi-gdb firmware.elf -ex "target remote :3333"
@@ -398,7 +398,7 @@ arm-none-eabi-gdb firmware.elf -ex "target remote :3333"
 Expected output:
 ```
 ╔════════════════════════════════════════════════════════════╗
-║       Bramble RP2040 Emulator - Dual-Core Mode           ║
+║       Pico-emu RP2040 Emulator - Dual-Core Mode           ║
 ╚════════════════════════════════════════════════════════════╝
 
 [Init] Initializing dual-core RP2040 emulator...
@@ -417,7 +417,7 @@ Executing...
 ## Project Structure
 
 ```
-Bramble/
+Pico-emu/
 ├── src/
 │   ├── main.c          # Unified entry point, boot, execution (single & dual)
 │   ├── cpu.c           # Cortex-M0+ core: O(1) dispatch, dual-core, exceptions
@@ -663,7 +663,7 @@ make CORES=2  # Compiles with dual-core definitions
 
 Then run with:
 ```bash
-./bramble firmware.uf2 -status  # Show status for both cores
+./picoemu firmware.uf2 -status  # Show status for both cores
 ```
 
 ## Technical Implementation
@@ -773,14 +773,14 @@ uint32_t spinlock_acquire(uint32_t lock_id) {
 
 ## Performance
 
-Bramble now ships with a 64K decoded instruction cache enabled by default and optional JIT basic-block compilation via `-jit`.
+Pico-emu now ships with a 64K decoded instruction cache enabled by default and optional JIT basic-block compilation via `-jit`.
 
 - **Instruction cache**: Avoids repeat decode/dispatch work for hot Thumb-1 paths.
 - **JIT**: Compiles hot flash/ROM basic blocks and reports execution stats on exit.
 - **Threaded execution**: `-cores 2` and `-cores auto` map emulated cores to host pthreads while preserving a shared-state lock.
 - **I/O behavior**: Firmware output stays on stdout while emulator diagnostics stay on stderr, which keeps pipes and scripted runs predictable.
 
-Measured on a 16-CPU Linux x86-64 host (`./build/bramble_bench`, 4.2M-instruction synthetic loop, best of 3):
+Measured on a 16-CPU Linux x86-64 host (`./build/picoemu_bench`, 4.2M-instruction synthetic loop, best of 3):
 
 | Build | Throughput | Notes |
 |-------|-----------|-------|
@@ -788,7 +788,7 @@ Measured on a 16-CPU Linux x86-64 host (`./build/bramble_bench`, 4.2M-instructio
 | Native, ICache + JIT (`-jit`) | 147.6 MIPS | 1.72x over ICache |
 | WASM in Node 22 (`littleos.uf2`, real firmware + peripherals) | 22–25 MIPS | `node test-wasm.js`; JIT slower in WASM (22.1 vs 25.4, leave off) |
 
-For context, the improved pure-JS fork [c1570/rp2040js](https://github.com/c1570/rp2040js) reports ~70M cycles/s on recent PCs. Cycles are not instructions (Thumb averages >1 cycle/instr), so the figures are not directly comparable — but Bramble native is in the same league or faster on CPU-bound loops, while the browser build trades raw speed for the full peripheral set (USB, VNet, SD/eMMC, GDB) that pure-JS emulators lack. Browser frame budget is `500k` instructions/frame (~29ms at 17 MIPS); full 125MHz realtime would need ~80+ MIPS, so heavy firmware runs at ~1/5 realtime in the tab.
+For context, the improved pure-JS fork [c1570/rp2040js](https://github.com/c1570/rp2040js) reports ~70M cycles/s on recent PCs. Cycles are not instructions (Thumb averages >1 cycle/instr), so the figures are not directly comparable — but Pico-emu native is in the same league or faster on CPU-bound loops, while the browser build trades raw speed for the full peripheral set (USB, VNet, SD/eMMC, GDB) that pure-JS emulators lack. Browser frame budget is `500k` instructions/frame (~29ms at 17 MIPS); full 125MHz realtime would need ~80+ MIPS, so heavy firmware runs at ~1/5 realtime in the tab.
 
 For benchmarking details, see `tests/benchmark.c`.
 
@@ -801,7 +801,7 @@ For benchmarking details, see `tests/benchmark.c`.
 
 ## Contributing
 
-The Bramble project is open for contributions! Areas that need help:
+The Pico-emu project is open for contributions! Areas that need help:
 
 1. **Testing**: Firmware coverage, edge cases, and performance benchmarks.
 2. **Device models**: Sensors, networking peripherals, and board-specific integrations.

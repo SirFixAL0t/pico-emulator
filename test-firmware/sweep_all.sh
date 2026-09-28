@@ -4,7 +4,7 @@
 # Interactive demos (uart_echo/name_prompt) get piped stdin.
 set -u
 BUILD="${1:-build}"
-BIN="$BUILD/bramble"
+BIN="$BUILD/picoemu"
 WEB="$(dirname "$0")/../web"
 pass=0; fail=0; failed=""
 run() { # file marker steps [stdin-text]
@@ -79,7 +79,7 @@ run uart_echo_pico2.uf2 "UART Echo Test Complete!" 5000000 'hello\n'
 run interrupt_test_pico2.uf2 "Timer Interrupt Test Complete!" 5000000
 run name_prompt_pico2.uf2 "Hello, Ada!" 5000000 'Ada\n'
 # RP2350 RV32
-run hello_rv32.uf2 "Hello from Bramble RV32" 2000000
+run hello_rv32.uf2 "Hello from Pico-emu RV32" 2000000
 run gpio_rv32.uf2 "GPIO Test Complete!" 2000000
 run timer_rv32.uf2 "Timer Test Complete!" 5000000
 run interrupt_rv32.uf2 "Timer Interrupt Test Complete!" 60000000

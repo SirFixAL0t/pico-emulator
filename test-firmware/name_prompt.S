@@ -1,7 +1,7 @@
 /*
  * Interactive UART Name Prompt Test
  *
- * Demonstrates Bramble's stdin -> UART0 RX path:
+ * Demonstrates Pico-emu's stdin -> UART0 RX path:
  * 1. Prompt for a name
  * 2. Poll UART0 until input is available
  * 3. Echo typed characters while buffering them in RAM
@@ -21,7 +21,7 @@
 .equ UART_CR_EN,        0x0301        /* UARTEN | TXE | RXE */
 
 /* RAM
- * Use Core 0 private RAM top for stack safety in Bramble's dual-core mode.
+ * Use Core 0 private RAM top for stack safety in Pico-emu's dual-core mode.
  */
 .equ RAM_TOP,           0x20021000
 .equ NAME_BUF_SIZE,     32

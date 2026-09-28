@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rsp_read.py — minimal RSP memory/register reader for Bramble gdb stub.
+"""rsp_read.py — minimal RSP memory/register reader for Pico-emu gdb stub.
 Usage: rsp_read.py <port> regs | mem <hexaddr> <hexlen>
 """
 import socket, sys

@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bramble WASM - RP2350 Emulator</title>
-<meta name="description" content="Bramble: a browser RP2040/RP2350 emulator. Load real UF2 firmware and watch it run.">
-<link rel="icon" type="image/png" href="./bramble-logo.png">
+<title>Pico-emu WASM - RP2350 Emulator</title>
+<meta name="description" content="Pico-emu: a browser RP2040/RP2350 emulator. Load real UF2 firmware and watch it run.">
+<link rel="icon" type="image/png" href="./picoemu-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -14,10 +14,10 @@
 <body>
 
 <header class="faceplate">
-  <a class="brand" href="./index.html" aria-label="Bramble home">
+  <a class="brand" href="./index.html" aria-label="Pico-emu home">
     <span class="brand-mark" aria-hidden="true"></span>
     <span>
-      <span class="brand-name">Bramble</span><br>
+      <span class="brand-name">Pico-emu</span><br>
       <span class="brand-sub">RP2040 / RP2350 emulator in the browser</span>
     </span>
   </a>
@@ -301,7 +301,7 @@
 </div>
 
 <footer class="page-footer">
-  <span>Bramble — a browser bench for RP2040 and RP2350 firmware.</span>
+  <span>Pico-emu — a browser bench for RP2040 and RP2350 firmware.</span>
   <nav aria-label="Footer">
     <a href="./about.html">About this project</a>
     <a href="./docs.html">Support tables</a>
@@ -310,7 +310,7 @@
 </footer>
 
 <script type="module">
-import BrambleModule from './bramble.wasm.js';
+import PicoemuModule from './picoemu.wasm.js';
 
 let mod = null;
 let running = false;
@@ -352,7 +352,7 @@ function updateGpio() {
     for (let i = 16; i < 30; i++) hi.innerHTML += `<div class="gpio-pin" id="gpio-${i}">${i}</div>`;
   }
   for (let i = 0; i < 30; i++) {
-    const val = mod._bramble_get_gpio_raw(i) || mod._bramble_get_gpio(i);
+    const val = mod._picoemu_get_gpio_raw(i) || mod._picoemu_get_gpio(i);
     const el = $(`gpio-${i}`);
     if (el) el.className = 'gpio-pin ' + (val ? 'high' : 'low');
   }
@@ -361,15 +361,15 @@ function updateGpio() {
 function updateCoreState() {
   const pcBuf = mod._malloc(4);
   const spBuf = mod._malloc(4);
-  mod._bramble_get_core_state(0, pcBuf, spBuf);
+  mod._picoemu_get_core_state(0, pcBuf, spBuf);
   const pc = mod.HEAPU32[pcBuf >> 2];
   const sp = mod.HEAPU32[spBuf >> 2];
   mod._free(pcBuf);
   mod._free(spBuf);
   $('core-pc').textContent = '0x' + pc.toString(16).padStart(8, '0');
   $('core-sp').textContent = '0x' + sp.toString(16).padStart(8, '0');
-  let st = mod._bramble_is_halted() ? 'halted' : 'running';
-  try { if (mod._bramble_gdb_is_hit()) st = 'gdb-stop core' + mod._bramble_gdb_hit_core(); } catch(e) {}
+  let st = mod._picoemu_is_halted() ? 'halted' : 'running';
+  try { if (mod._picoemu_gdb_is_hit()) st = 'gdb-stop core' + mod._picoemu_gdb_hit_core(); } catch(e) {}
   $('core-status').textContent = st;
 }
 
@@ -379,16 +379,16 @@ function frame() {
   const now = performance.now();
   const elapsed = now - lastFrameTime;
   if (elapsed > 16) {
-    const steps = mod._bramble_step(CYCLES_PER_FRAME);
+    const steps = mod._picoemu_step(CYCLES_PER_FRAME);
     totalInstructions += steps;
 
     // pump guest ETH frames -> gateway WebSocket (raw, no prefix)
     try {
-      const gw = window.brambleGW;
+      const gw = window.picoemuGW;
       if (gw && gw.readyState === 1) {
         for (let i = 0; i < 16; i++) {
           const ptr = mod._malloc(2048);
-          const got = mod._bramble_eth_pop_tx(ptr, 2048);
+          const got = mod._picoemu_eth_pop_tx(ptr, 2048);
           if (got <= 0) { mod._free(ptr); break; }
           gw.send(mod.HEAPU8.slice(ptr, ptr + got));
           mod._free(ptr);
@@ -398,11 +398,11 @@ function frame() {
 
     // pump guest BLE HCI frames -> ble-gateway WebSocket (raw H4)
     try {
-      const bh = window.brambleBleHci;
+      const bh = window.picoemuBleHci;
       if (bh && bh.readyState === 1) {
         for (let i = 0; i < 16; i++) {
           const ptr = mod._malloc(2048);
-          const got = mod._bramble_bt_hci_pop_tx(ptr, 2048);
+          const got = mod._picoemu_bt_hci_pop_tx(ptr, 2048);
           if (got <= 0) { mod._free(ptr); break; }
           bh.send(mod.HEAPU8.slice(ptr, ptr + got));
           mod._free(ptr);
@@ -412,11 +412,11 @@ function frame() {
 
     // pump GDB TX -> WebSocket (non-blocking RSP)
     try {
-      const n = mod._bramble_gdb_tx_len();
-      if (n > 0 && window.brambleGDB && window.brambleGDB.readyState === 1) {
+      const n = mod._picoemu_gdb_tx_len();
+      if (n > 0 && window.picoemuGDB && window.picoemuGDB.readyState === 1) {
         const ptr = mod._malloc(n);
-        const got = mod._bramble_gdb_pop_tx(ptr, n);
-        window.brambleGDB.send(mod.HEAPU8.slice(ptr, ptr + got));
+        const got = mod._picoemu_gdb_pop_tx(ptr, n);
+        window.picoemuGDB.send(mod.HEAPU8.slice(ptr, ptr + got));
         mod._free(ptr);
       }
     } catch(e) {}
@@ -425,13 +425,13 @@ function frame() {
     // Same shared net_proxy as the Net panel; NOT the OpenHW gateway — the
     // W5500 speaks socket-level TCP/UDP, not raw ETH (see docs note).
     try {
-      const ns = window.brambleNetSocket;
+      const ns = window.picoemuNetSocket;
       if (ns && ns.readyState === 1) {
         let budget = 0;
-        try { budget = mod._bramble_w5500_tx_len(); } catch(e2) { budget = 0; }
+        try { budget = mod._picoemu_w5500_tx_len(); } catch(e2) { budget = 0; }
         if (budget > 0) {
           const ptr = mod._malloc(Math.min(budget, 8192));
-          const got = mod._bramble_w5500_pop_tx(ptr, Math.min(budget, 8192));
+          const got = mod._picoemu_w5500_pop_tx(ptr, Math.min(budget, 8192));
           if (got > 0) ns.send(mod.HEAPU8.slice(ptr, ptr + got));
           mod._free(ptr);
         }
@@ -439,7 +439,7 @@ function frame() {
     } catch(e) {}
 
     let ch;
-    while ((ch = mod._bramble_read_uart(0)) !== -1) appendSerial(String.fromCharCode(ch));
+    while ((ch = mod._picoemu_read_uart(0)) !== -1) appendSerial(String.fromCharCode(ch));
 
     updateCoreState();
     updateGpio();
@@ -491,7 +491,7 @@ $('btn-reset').onclick = () => {
   if (!mod) return;
   setRunning_ui(false);
   if (rafId) cancelAnimationFrame(rafId);
-  mod._bramble_reset();
+  mod._picoemu_reset();
   uartText = '';
   serialEl.textContent = '';
   totalInstructions = 0;
@@ -507,7 +507,7 @@ $('btn-reset').onclick = () => {
 
 $('clock-select').onchange = (e) => {
   if (!mod) return;
-  mod._bramble_set_clock(parseInt(e.target.value));
+  mod._picoemu_set_clock(parseInt(e.target.value));
 };
 
 $('btn-clear').onclick = () => { uartText = ''; serialEl.textContent = ''; };
@@ -515,10 +515,10 @@ $('btn-clear').onclick = () => { uartText = ''; serialEl.textContent = ''; };
 $('btn-send').onclick = () => {
   if (!mod) return;
   const text = $('uart-input').value;
-  for (const ch of text) mod._bramble_write_uart(ch.charCodeAt(0));
+  for (const ch of text) mod._picoemu_write_uart(ch.charCodeAt(0));
   // CR submits the line: USB REPLs (MicroPython) want raw CR, UART shells
   // get CR->LF via feed_uart_rx. Sent only when there is text to submit.
-  if (text.length) mod._bramble_write_uart(13);
+  if (text.length) mod._picoemu_write_uart(13);
   $('uart-input').value = '';
 };
 
@@ -530,7 +530,7 @@ $('btn-read-mem').onclick = () => {
   if (!mod) return;
   const addr = parseInt($('mem-addr').value, 16);
   if (isNaN(addr)) return;
-  const val = mod._bramble_mem_read32(addr);
+  const val = mod._picoemu_mem_read32(addr);
   $('mem-val').textContent = '0x' + (val >>> 0).toString(16).padStart(8, '0');
 };
 
@@ -543,12 +543,12 @@ async function loadFirmware(data, name) {
   const isRV = /riscv|rv32/i.test(name);
   const isPico2 = /pico2/i.test(name);
   const arch = isRV ? 1 : (isPico2 ? 2 : 0);
-  mod._bramble_init(arch);
-  mod._bramble_set_clock(parseInt($('clock-select').value));
+  mod._picoemu_init(arch);
+  mod._picoemu_set_clock(parseInt($('clock-select').value));
   try {
-    mod._bramble_set_cores(parseInt($('cores-select').value || '2'));
-    mod._bramble_set_jit($('chk-jit')?.checked ? 1 : 0);
-    mod._bramble_set_debug($('chk-debug')?.checked ? 1 : 0, -1);
+    mod._picoemu_set_cores(parseInt($('cores-select').value || '2'));
+    mod._picoemu_set_jit($('chk-jit')?.checked ? 1 : 0);
+    mod._picoemu_set_debug($('chk-debug')?.checked ? 1 : 0, -1);
   } catch(e) {}
 
   uartText = '';
@@ -564,17 +564,17 @@ async function loadFirmware(data, name) {
 
   let blocks;
   if (name.endsWith('.uf2')) {
-    blocks = mod._bramble_load_uf2(ptr, data.length);
+    blocks = mod._picoemu_load_uf2(ptr, data.length);
     $('status').textContent = `Loaded UF2 (${blocks} blocks)`;
   } else {
-    blocks = mod._bramble_load_elf(ptr, data.length);
+    blocks = mod._picoemu_load_elf(ptr, data.length);
     $('status').textContent = blocks ? 'Loaded ELF' : 'ELF load failed';
   }
   mod._free(ptr);
-  mod._bramble_reset();
+  mod._picoemu_reset();
 
   // pico-eth/pico-eth2 board (WIZnet W5500-EVB-Pico/Pico2): separate SPI
-  // board, off by default. bramble_init detaches, so re-apply the UI
+  // board, off by default. picoemu_init detaches, so re-apply the UI
   // selection here. Pico2 wiring is identical; only the SoC differs.
   // Single-gateway default: MACRAW socket 0 joins the CYW43 vnet bus, so
   // the SAME Go gateway serves WiFi + Ethernet (no second bridge).
@@ -583,8 +583,8 @@ async function loadFirmware(data, name) {
     if (b === 'pico-eth' || b === 'pico-eth2') {
       const spi = parseInt(($('board-spi') || {}).value || '0', 10) || 0;
       const live = $('chk-board-live')?.checked ? 1 : 0;
-      mod._bramble_board_eth(1, live, spi);
-      try { mod._bramble_w5500_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e2) {}
+      mod._picoemu_board_eth(1, live, spi);
+      try { mod._picoemu_w5500_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e2) {}
       $('status').textContent += ' + ' + b;
     }
   } catch(e) {}
@@ -605,7 +605,7 @@ window.loadPreset = async (name) => {
 // Same protocol the ESP/STM32 simulators use: ws://host:5090/api/network-gateway[?sessionId=room]
 window.connectGateway = () => {
   if (!mod) return;
-  try { if (window.brambleGW) window.brambleGW.close(); } catch(e) {}
+  try { if (window.picoemuGW) window.picoemuGW.close(); } catch(e) {}
   let url = ($('gw-url').value || 'ws://localhost:5090/api/network-gateway').trim();
   const room = ($('gw-room').value || '').trim();
   if (room) url += (url.includes('?') ? '&' : '?') + 'sessionId=' + encodeURIComponent(room);
@@ -614,13 +614,13 @@ window.connectGateway = () => {
   ws.onopen = () => {
     $('gw-status').textContent = 'on';
     $('status').textContent = `Gateway ${url} open`;
-    window.brambleGW = ws;
-    try { mod._bramble_eth_set_uplink(1); } catch(e) {}
+    window.picoemuGW = ws;
+    try { mod._picoemu_eth_set_uplink(1); } catch(e) {}
   };
   ws.onclose = () => {
     $('gw-status').textContent = 'off';
-    if (window.brambleGW === ws) window.brambleGW = null;
-    try { mod._bramble_eth_set_uplink(0); } catch(e) {}
+    if (window.picoemuGW === ws) window.picoemuGW = null;
+    try { mod._picoemu_eth_set_uplink(0); } catch(e) {}
   };
   ws.onerror = () => { $('gw-status').textContent = 'err'; };
   ws.onmessage = (e) => {
@@ -628,7 +628,7 @@ window.connectGateway = () => {
     if (arr.length < 14 || arr.length > 1522) return;  // raw ETH frame only
     const ptr = mod._malloc(arr.length);
     mod.HEAPU8.set(arr, ptr);
-    try { mod._bramble_eth_push_rx(ptr, arr.length); } catch(err) {}
+    try { mod._picoemu_eth_push_rx(ptr, arr.length); } catch(err) {}
     mod._free(ptr);
   };
 };
@@ -636,20 +636,20 @@ window.connectGateway = () => {
 // Same protocol as cli.js --ble-hci: ws://host:5090/api/ble-gateway
 window.connectBleHci = () => {
   if (!mod) return;
-  try { if (window.brambleBleHci) window.brambleBleHci.close(); } catch(e) {}
+  try { if (window.picoemuBleHci) window.picoemuBleHci.close(); } catch(e) {}
   const url = ($('ble-url').value || 'ws://localhost:5090/api/ble-gateway').trim();
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
     $('ble-status').textContent = 'on';
     $('status').textContent = `BLE HCI ${url} open`;
-    window.brambleBleHci = ws;
-    try { mod._bramble_bt_hci_enable(1); } catch(e) {}
+    window.picoemuBleHci = ws;
+    try { mod._picoemu_bt_hci_enable(1); } catch(e) {}
   };
   ws.onclose = () => {
     $('ble-status').textContent = 'off';
-    if (window.brambleBleHci === ws) window.brambleBleHci = null;
-    try { mod._bramble_bt_hci_enable(0); } catch(e) {}
+    if (window.picoemuBleHci === ws) window.picoemuBleHci = null;
+    try { mod._picoemu_bt_hci_enable(0); } catch(e) {}
   };
   ws.onerror = () => { $('ble-status').textContent = 'err'; };
   ws.onmessage = (e) => {
@@ -657,7 +657,7 @@ window.connectBleHci = () => {
     if (arr.length < 2 || arr.length > 1088) return;  // raw H4 packet only
     const ptr = mod._malloc(arr.length);
     mod.HEAPU8.set(arr, ptr);
-    try { mod._bramble_bt_hci_push_rx(ptr, arr.length); } catch(err) {}
+    try { mod._picoemu_bt_hci_push_rx(ptr, arr.length); } catch(err) {}
     mod._free(ptr);
   };
 };
@@ -670,13 +670,13 @@ window.connectGDB = () => {  // Proxy: python3 web/net_proxy.py --ws 8765 --gdb-
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       $('status').textContent = `GDB ${url} open -> :3333`;
-      window.brambleGDB = ws;
-      try { mod._bramble_gdb_enable(1); } catch(e) {}
+      window.picoemuGDB = ws;
+      try { mod._picoemu_gdb_enable(1); } catch(e) {}
     };
     const pushGdb = (u8) => {
       const ptr = mod._malloc(u8.length);
       mod.HEAPU8.set(u8, ptr);
-      try { mod._bramble_gdb_push_rx(ptr, u8.length); } catch(e) {}
+      try { mod._picoemu_gdb_push_rx(ptr, u8.length); } catch(e) {}
       mod._free(ptr);
     };
     ws.onmessage = (e) => {
@@ -688,21 +688,21 @@ window.connectGDB = () => {  // Proxy: python3 web/net_proxy.py --ws 8765 --gdb-
     if (!window._gdbPump) {
       window._gdbPump = setInterval(() => {
         try {
-          const n = mod._bramble_gdb_tx_len();
-          if (n > 0 && window.brambleGDB && window.brambleGDB.readyState === 1) {
+          const n = mod._picoemu_gdb_tx_len();
+          if (n > 0 && window.picoemuGDB && window.picoemuGDB.readyState === 1) {
             const ptr = mod._malloc(n);
-            const got = mod._bramble_gdb_pop_tx(ptr, n);
+            const got = mod._picoemu_gdb_pop_tx(ptr, n);
             const out = mod.HEAPU8.slice(ptr, ptr + got);
             mod._free(ptr);
-            window.brambleGDB.send(out);
+            window.picoemuGDB.send(out);
           }
-          if (mod._bramble_gdb_is_hit()) {
-            $('core-status').textContent = 'gdb-stop core' + mod._bramble_gdb_hit_core();
+          if (mod._picoemu_gdb_is_hit()) {
+            $('core-status').textContent = 'gdb-stop core' + mod._picoemu_gdb_hit_core();
           }
         } catch(e) {}
       }, 16);
     }
-    ws.onclose = () => { try { mod._bramble_gdb_enable(0); } catch(e) {} };
+    ws.onclose = () => { try { mod._picoemu_gdb_enable(0); } catch(e) {} };
     ws.onerror = () => $('status').textContent = `GDB ${url} error (run net_proxy.py)`;
   } catch(e){ $('status').textContent = `GDB err ${e.message}`; }
 };
@@ -715,16 +715,16 @@ window.connectNet = () => {
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       $('status').textContent = `Net ${wsUrl} open`;
-      window.brambleNetSocket = ws;
+      window.picoemuNetSocket = ws;
       try {
-        mod._bramble_net_set_connected(1); mod._bramble_net_enable(1);
+        mod._picoemu_net_set_connected(1); mod._picoemu_net_enable(1);
         // If a pico-eth board is selected, the proxy speaks for it
-        // (same 8-socket model; bramble_w5500_push_rx targets the board).
+        // (same 8-socket model; picoemu_w5500_push_rx targets the board).
         // Single-gateway default keeps MACRAW on the shared vnet bus too.
         if ((($('board-select') || {}).value || '').startsWith('pico-eth')) {
           const spi = parseInt(($('board-spi') || {}).value || '0', 10) || 0;
-          try { mod._bramble_board_eth(1, 1, spi); } catch(e2) {}
-          try { mod._bramble_w5500_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e3) {}
+          try { mod._picoemu_board_eth(1, 1, spi); } catch(e2) {}
+          try { mod._picoemu_w5500_gw_enable($('chk-eth-gw')?.checked ? 1 : 0); } catch(e3) {}
         }
       } catch(e) {}
     };
@@ -738,23 +738,23 @@ window.connectNet = () => {
         const payload = arr.slice(3);
         const ptr = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, ptr);
-        try { mod._bramble_w5500_push_rx(arr[0], ptr, payload.length); } catch(err) {}
+        try { mod._picoemu_w5500_push_rx(arr[0], ptr, payload.length); } catch(err) {}
         mod._free(ptr);
       } else if (arr[0] === 0x57 && arr.length >= 4) {
         const sock = arr[1], ln = arr[2] | (arr[3] << 8);
         const payload = arr.slice(4, 4 + ln);
         const ptr = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, ptr);
-        try { mod._bramble_w5500_push_rx(sock, ptr, payload.length); } catch(err) {}
+        try { mod._picoemu_w5500_push_rx(sock, ptr, payload.length); } catch(err) {}
         mod._free(ptr);
       } else if (arr[0] === 0x53 && arr.length >= 4) {
-        try { mod._bramble_w5500_push_status(arr[1], arr[3]); } catch(err) {}
+        try { mod._picoemu_w5500_push_status(arr[1], arr[3]); } catch(err) {}
       } else if (arr.length >= 6 && arr[0] === 0x45 && arr[1] === 0x54 && arr[2] === 0x48) {
         const ln = arr[4] | (arr[5] << 8);
         const frame = arr.slice(6, 6 + ln);
         const ptr = mod._malloc(frame.length);
         mod.HEAPU8.set(frame, ptr);
-        try { mod._bramble_eth_push_rx(ptr, frame.length); } catch(err) {}
+        try { mod._picoemu_eth_push_rx(ptr, frame.length); } catch(err) {}
         mod._free(ptr);
       } else if (arr.length >= 14) {
         // Heuristic: looks like raw ETH frame -> vnet, else UART
@@ -762,65 +762,65 @@ window.connectNet = () => {
         if (isEth) {
           const ptr = mod._malloc(arr.length);
           mod.HEAPU8.set(arr, ptr);
-          try { mod._bramble_eth_push_rx(ptr, arr.length); } catch(err) {}
+          try { mod._picoemu_eth_push_rx(ptr, arr.length); } catch(err) {}
           mod._free(ptr);
         } else {
           const ptr = mod._malloc(arr.length);
           mod.HEAPU8.set(arr, ptr);
-          try { mod._bramble_net_push_rx(ptr, arr.length); } catch(err) {
-            for (const b of arr) mod._bramble_write_uart(b);
+          try { mod._picoemu_net_push_rx(ptr, arr.length); } catch(err) {
+            for (const b of arr) mod._picoemu_write_uart(b);
           }
           mod._free(ptr);
         }
       } else {
         const ptr = mod._malloc(arr.length);
         mod.HEAPU8.set(arr, ptr);
-        try { mod._bramble_net_push_rx(ptr, arr.length); } catch(err) {
-          for (const b of arr) mod._bramble_write_uart(b);
+        try { mod._picoemu_net_push_rx(ptr, arr.length); } catch(err) {
+          for (const b of arr) mod._picoemu_write_uart(b);
         }
         mod._free(ptr);
       }
     };
-    ws.onclose = () => { try { mod._bramble_net_set_connected(0); } catch(e) {} };
+    ws.onclose = () => { try { mod._picoemu_net_set_connected(0); } catch(e) {} };
     ws.onerror = () => $('status').textContent = `Net ${wsUrl} error (run net_proxy.py)`;
   } catch(e){ $('status').textContent = `Net err ${e.message}`; }
 };
 // Wire BroadcastChannel RX -> UART/GPIO/ETH (peer tabs)
-window.brambleWireRx = (uart, ch) => {
-  try { mod._bramble_write_uart(ch); } catch(e) {}
+window.picoemuWireRx = (uart, ch) => {
+  try { mod._picoemu_write_uart(ch); } catch(e) {}
 };
-window.brambleGpioRx = (pin, value) => {
-  try { mod._bramble_mem_write32(0x40014000 + pin * 8, value ? 1 : 0); } catch(e) {}
+window.picoemuGpioRx = (pin, value) => {
+  try { mod._picoemu_mem_write32(0x40014000 + pin * 8, value ? 1 : 0); } catch(e) {}
 };
-window.brambleEthRx = (data) => {
+window.picoemuEthRx = (data) => {
   try {
     const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
     const ptr = mod._malloc(u8.length);
     mod.HEAPU8.set(u8, ptr);
-    mod._bramble_eth_push_rx(ptr, u8.length);
+    mod._picoemu_eth_push_rx(ptr, u8.length);
     mod._free(ptr);
   } catch(e) {}
 };
 window.devStart = (which) => {
   try {
-    if (which === 'coverage') mod._bramble_coverage_start();
-    else if (which === 'trace') mod._bramble_trace_start();
-    else if (which === 'hotspots') mod._bramble_hotspots_start(20);
-    else if (which === 'profile') mod._bramble_profile_start();
-    else if (which === 'callgraph') mod._bramble_callgraph_start();
-    else if (which === 'vcd') mod._bramble_gpiotrace_start();
-    else if (which === 'irq') mod._bramble_irqlat_start();
-    else if (which === 'stack') mod._bramble_stackcheck_start();
-    else if (which === 'heatmap') mod._bramble_heatmap_start();
+    if (which === 'coverage') mod._picoemu_coverage_start();
+    else if (which === 'trace') mod._picoemu_trace_start();
+    else if (which === 'hotspots') mod._picoemu_hotspots_start(20);
+    else if (which === 'profile') mod._picoemu_profile_start();
+    else if (which === 'callgraph') mod._picoemu_callgraph_start();
+    else if (which === 'vcd') mod._picoemu_gpiotrace_start();
+    else if (which === 'irq') mod._picoemu_irqlat_start();
+    else if (which === 'stack') mod._picoemu_stackcheck_start();
+    else if (which === 'heatmap') mod._picoemu_heatmap_start();
     $('dev-status').textContent = which + ' on';
   } catch(e) { $('dev-status').textContent = 'err ' + e.message; }
 };
 window.devDump = () => {
   try {
-    mod._bramble_coverage_dump(); mod._bramble_hotspots_report();
-    mod._bramble_profile_dump(); mod._bramble_callgraph_dump();
-    mod._bramble_irqlat_report(); mod._bramble_stackcheck_report();
-    mod._bramble_heatmap_dump(); mod._bramble_gpiotrace_stop(); mod._bramble_trace_stop();
+    mod._picoemu_coverage_dump(); mod._picoemu_hotspots_report();
+    mod._picoemu_profile_dump(); mod._picoemu_callgraph_dump();
+    mod._picoemu_irqlat_report(); mod._picoemu_stackcheck_report();
+    mod._picoemu_heatmap_dump(); mod._picoemu_gpiotrace_stop(); mod._picoemu_trace_stop();
     const files = ['/coverage.bin','/trace.bin','/profile.csv','/callgraph.dot','/gpio.vcd','/heatmap.csv'];
     for (const f of files) {
       try {
@@ -837,20 +837,20 @@ window.devDump = () => {
 window.runWasmTests = async () => {
   $('status').textContent = 'See node test-wasm.js (396 tests)';
   try {
-    const res = await fetch('./bramble.wasm.wasm');
+    const res = await fetch('./picoemu.wasm.wasm');
     $('status').textContent = `WASM ${(await res.arrayBuffer()).byteLength}B ready; run: node test-wasm.js`;
   } catch(e) { $('status').textContent = 'test err ' + e.message; }
 };
 document.getElementById('chk-jit')?.addEventListener('change', e=>{
-  try { mod._bramble_set_jit(e.target.checked ? 1 : 0); } catch(err) {}
+  try { mod._picoemu_set_jit(e.target.checked ? 1 : 0); } catch(err) {}
   $('status').textContent = `JIT ${e.target.checked?'on':'off'}`;
 });
 document.getElementById('chk-debug')?.addEventListener('change', e=>{
-  try { mod._bramble_set_debug(e.target.checked ? 1 : 0, -1); } catch(err) {}
+  try { mod._picoemu_set_debug(e.target.checked ? 1 : 0, -1); } catch(err) {}
   $('status').textContent = `Debug ${e.target.checked?'on':'off'}`;
 });
 document.getElementById('cores-select')?.addEventListener('change', e=>{
-  try { mod._bramble_set_cores(parseInt(e.target.value)); } catch(err) {}
+  try { mod._picoemu_set_cores(parseInt(e.target.value)); } catch(err) {}
   $('status').textContent = `Cores ${e.target.value} (cooperative)`;
 });
 document.getElementById('flash-file')?.addEventListener('change', async e=>{
@@ -862,16 +862,16 @@ document.getElementById('flash-file')?.addEventListener('change', async e=>{
     if (name.includes('sdcard') || name.endsWith('.img')) {
       // Heuristic: SD image vs flash image by size (>4MB = SD)
       if (buf.length > 4*1024*1024) {
-        mod._bramble_sdcard_load(ptr, buf.length, 1);
+        mod._picoemu_sdcard_load(ptr, buf.length, 1);
         $('status').textContent = `SD ${f.name} ${buf.length} bytes on SPI1`;
       } else {
-        mod._bramble_flash_write(ptr, buf.length, 0);
+        mod._picoemu_flash_write(ptr, buf.length, 0);
         mod.ccall('flash_persist_set_path', null, ['string'], ['/flash.bin']);
-        try { mod._bramble_flash_save(); } catch(err) {}
+        try { mod._picoemu_flash_save(); } catch(err) {}
         $('status').textContent = `Flash ${f.name} ${buf.length} bytes -> MEMFS/IDBFS`;
       }
     } else {
-      mod._bramble_flash_write(ptr, buf.length, 0);
+      mod._picoemu_flash_write(ptr, buf.length, 0);
       $('status').textContent = `Flash ${f.name} ${buf.length} bytes staged`;
     }
   } catch(err) { $('status').textContent = `Flash err ${err.message}`; }
@@ -898,7 +898,7 @@ fileInput.onchange = (e) => {
 $('status').textContent = 'Initializing WASM...';
 
 try {
-  mod = await BrambleModule({
+  mod = await PicoemuModule({
     print: (t) => console.log(t),
     printErr: (t) => console.log(t)
   });

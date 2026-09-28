@@ -2,7 +2,7 @@
 
 ## Overview
 
-Bramble includes comprehensive GPIO emulation for the RP2040's 30 GPIO pins (expanded to 48 pins on RP2350), including SIO fast-path access, IO_BANK0/PADS_BANK0 register state, and NVIC-backed edge/level interrupt generation for processor 0.
+Pico-emu includes comprehensive GPIO emulation for the RP2040's 30 GPIO pins (expanded to 48 pins on RP2350), including SIO fast-path access, IO_BANK0/PADS_BANK0 register state, and NVIC-backed edge/level interrupt generation for processor 0.
 
 ## Implementation Details
 
@@ -167,7 +167,7 @@ This creates `gpio_test.uf2` which:
 ### Run GPIO Test
 
 ```bash
-./bramble gpio_test.uf2
+./picoemu gpio_test.uf2
 ```
 
 **Expected Output:**
@@ -271,7 +271,7 @@ GPIO is integrated into the memory bus (`membus.c`):
 
 - [RP2040 Datasheet - Section 2.19 (GPIO)](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 - [Pico SDK GPIO Documentation](https://github.com/raspberrypi/pico-sdk)
-- Bramble source: `src/gpio.c`, `include/gpio.h`
+- Pico-emu source: `src/gpio.c`, `include/gpio.h`
 
 ---
 

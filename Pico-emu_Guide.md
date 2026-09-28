@@ -2,7 +2,7 @@
 
 ## 1.1 Project Summary
 
-Bramble is a from-scratch emulator for Raspberry Pi RP2040 and RP2350
+Pico-emu is a from-scratch emulator for Raspberry Pi RP2040 and RP2350
 microcontrollers written in C99 with POSIX extensions. It executes real
 firmware---UF2 and ELF binaries produced by the Pico SDK, MicroPython,
 CircuitPython, littleOS, and other projects---without modification.
@@ -37,7 +37,7 @@ subsystem, networking stack, and developer tools.
 
 4. **Interactive debugging.** The integrated GDB stub supports breakpoints, watchpoints, conditional breakpoints, dual-core thread selection, and architecture-aware register layouts (17 registers for ARM, 33 for RISC-V).
 
-5. **Multi-device and network support.** UART-to-TCP bridging, virtual network bus with TAP bridge and multi-instance Ethernet mesh, W5500 live host sockets, Unix socket IPC between Bramble instances, SPI-attached SD card and eMMC, CYW43 WiFi emulation with TAP bridging, and a software-defined device framework enable complex system-level testing.
+5. **Multi-device and network support.** UART-to-TCP bridging, virtual network bus with TAP bridge and multi-instance Ethernet mesh, W5500 live host sockets, Unix socket IPC between Pico-emu instances, SPI-attached SD card and eMMC, CYW43 WiFi emulation with TAP bridging, and a software-defined device framework enable complex system-level testing.
 
 6. **Developer tooling.** 18 built-in tools: semihosting, code coverage, hotspot analysis, instruction trace, call graph, VCD waveform export, IRQ latency measurement, stack checking, bus logging, scripted I/O, expected output matching, memory watch, fault injection, cycle profiling, and memory heatmap.
 
@@ -66,7 +66,7 @@ subsystem, networking stack, and developer tools.
 
 ## 1.4 Execution Modes
 
-Bramble supports four execution modes, selected by architecture and CLI flags:
+Pico-emu supports four execution modes, selected by architecture and CLI flags:
 
 ### 1.4.1 Cooperative ARM Mode (default)
 
@@ -98,7 +98,7 @@ When threading is enabled, each emulated core gets its own host pthread:
 
 4. The main thread handles I/O polling (stdin, network, wire, WiFi TAP), watchdog checking, and periodic storage flush.
 
-5. A file-based core pool registry at `/tmp/bramble-corepool.reg` tracks running instances. `-cores auto` queries this registry to determine optimal allocation (total host CPUs minus already-claimed cores).
+5. A file-based core pool registry at `/tmp/picoemu-corepool.reg` tracks running instances. `-cores auto` queries this registry to determine optimal allocation (total host CPUs minus already-claimed cores).
 
 ### 1.4.3 RISC-V Mode (`-arch rv32` or auto-detected)
 
@@ -254,7 +254,7 @@ Standard ARM vector table boot
 ./build.sh
 ```
 
-The `build.sh` script auto-detects FUSE availability, creates a `build/` directory, runs CMake with Release configuration, and copies the `bramble` binary to the project root.
+The `build.sh` script auto-detects FUSE availability, creates a `build/` directory, runs CMake with Release configuration, and copies the `picoemu` binary to the project root.
 
 Build script flags:
 
@@ -285,9 +285,9 @@ CMake options:
 
 | Binary | Description |
 |--------|-------------|
-| `bramble` | Main emulator executable (copied to project root) |
-| `bramble_tests` | Automated test suite |
-| `bramble_bench` | Performance benchmarking tool |
+| `picoemu` | Main emulator executable (copied to project root) |
+| `picoemu_tests` | Automated test suite |
+| `picoemu_bench` | Performance benchmarking tool |
 
 ## 2.3 Running Tests
 
@@ -296,7 +296,7 @@ CMake options:
 ctest --test-dir build --output-on-failure
 
 # Run directly
-./build/bramble_tests
+./build/picoemu_tests
 ```
 
 The test suite contains **319 tests** organized into 60+ categories:
@@ -318,46 +318,46 @@ The test suite contains **319 tests** organized into 60+ categories:
 
 ```bash
 # RP2040 firmware (architecture auto-detected)
-./bramble hello_world.uf2
+./picoemu hello_world.uf2
 
 # With real-time clock and interactive stdin
-./bramble firmware.uf2 -clock 125 -stdin
+./picoemu firmware.uf2 -clock 125 -stdin
 
 # ELF firmware (auto-detected by .elf extension)
-./bramble firmware.elf
+./picoemu firmware.elf
 ```
 
 ### Architecture Selection
 
 ```bash
 # Explicit architecture
-./bramble firmware.uf2 -arch m0+       # RP2040 Cortex-M0+
-./bramble firmware.uf2 -arch m33       # RP2350 Cortex-M33
-./bramble firmware.uf2 -arch rv32      # RP2350 Hazard3 RISC-V
+./picoemu firmware.uf2 -arch m0+       # RP2040 Cortex-M0+
+./picoemu firmware.uf2 -arch m33       # RP2350 Cortex-M33
+./picoemu firmware.uf2 -arch rv32      # RP2350 Hazard3 RISC-V
 
 # Auto-detected from UF2 family ID
-./bramble pico2_firmware.uf2           # Detects RP2350
-./bramble micropython_pico2_rv.uf2     # Detects RP2350 RISC-V
+./picoemu pico2_firmware.uf2           # Detects RP2350
+./picoemu micropython_pico2_rv.uf2     # Detects RP2350 RISC-V
 ```
 
 ### Multi-Core and Persistence
 
 ```bash
 # Dual-core threaded with flash persistence
-./bramble firmware.uf2 -cores 2 -clock 125 -flash storage.bin
+./picoemu firmware.uf2 -cores 2 -clock 125 -flash storage.bin
 
 # Auto-detect core count from pool
-./bramble firmware.uf2 -cores auto
+./picoemu firmware.uf2 -cores auto
 
 # FUSE mount flash filesystem
-./bramble firmware.uf2 -flash storage.bin -mount /tmp/pico-fs
+./picoemu firmware.uf2 -flash storage.bin -mount /tmp/pico-fs
 ```
 
 ### GDB Debugging
 
 ```bash
 # Terminal 1: start emulator with GDB server
-./bramble firmware.uf2 -gdb 3333
+./picoemu firmware.uf2 -gdb 3333
 
 # Terminal 2: connect GDB
 arm-none-eabi-gdb firmware.elf -ex "target remote :3333"
@@ -370,46 +370,46 @@ riscv32-unknown-elf-gdb firmware.elf -ex "target remote :3333"
 
 ```bash
 # Bridge UART0 to TCP (connect with nc or minicom)
-./bramble firmware.uf2 -net-uart0 9999 -stdin
+./picoemu firmware.uf2 -net-uart0 9999 -stdin
 
 # Wire two instances together
-./bramble fw_sensor.uf2 -wire-uart0 /tmp/uart.sock -stdin  # Terminal 1
-./bramble fw_ctrl.uf2   -wire-uart0 /tmp/uart.sock -stdin  # Terminal 2
+./picoemu fw_sensor.uf2 -wire-uart0 /tmp/uart.sock -stdin  # Terminal 1
+./picoemu fw_ctrl.uf2   -wire-uart0 /tmp/uart.sock -stdin  # Terminal 2
 
 # WiFi with TAP bridge
-./bramble firmware.uf2 -wifi -tap tap0
+./picoemu firmware.uf2 -wifi -tap tap0
 
 # SD card
-./bramble firmware.uf2 -sdcard sdcard.img -sdcard-size 32
+./picoemu firmware.uf2 -sdcard sdcard.img -sdcard-size 32
 
 # Virtual network: single-command internet bridge
-sudo ./bramble firmware.uf2 -net -stdin
+sudo ./picoemu firmware.uf2 -net -stdin
 
 # Mesh two instances with virtual Ethernet
-./bramble fw1.uf2 -net-peer /tmp/vnet.sock   # Terminal 1
-./bramble fw2.uf2 -net-peer /tmp/vnet.sock   # Terminal 2
+./picoemu fw1.uf2 -net-peer /tmp/vnet.sock   # Terminal 1
+./picoemu fw2.uf2 -net-peer /tmp/vnet.sock   # Terminal 2
 
 # Attach software-defined thermometer
-./bramble firmware.uf2 -sdd thermometer:temp=37.5,addr=0x49
+./picoemu firmware.uf2 -sdd thermometer:temp=37.5,addr=0x49
 ```
 
 ### Developer Tools
 
 ```bash
 # Code coverage and hotspot analysis
-./bramble firmware.uf2 -coverage cov.bin -hotspots 20
+./picoemu firmware.uf2 -coverage cov.bin -hotspots 20
 
 # Instruction trace with symbols
-./bramble firmware.uf2 -trace trace.bin -symbols firmware.elf
+./picoemu firmware.uf2 -trace trace.bin -symbols firmware.elf
 
 # GPIO VCD trace for waveform viewer
-./bramble firmware.uf2 -gpio-trace pins.vcd
+./picoemu firmware.uf2 -gpio-trace pins.vcd
 
 # Expected output matching (CI integration)
-./bramble firmware.uf2 -expect golden.txt -timeout 5
+./picoemu firmware.uf2 -expect golden.txt -timeout 5
 
 # Fault injection
-./bramble firmware.uf2 -inject-fault flash_bitflip:1000000:0x10000100
+./picoemu firmware.uf2 -inject-fault flash_bitflip:1000000:0x10000100
 ```
 
 ---
@@ -419,7 +419,7 @@ sudo ./bramble firmware.uf2 -net -stdin
 ## 3.1 Usage Syntax
 
 ```
-bramble <firmware.uf2|firmware.elf> [options]
+picoemu <firmware.uf2|firmware.elf> [options]
 ```
 
 The firmware path **must** be the first argument. All options follow.
@@ -502,14 +502,14 @@ The firmware path **must** be the first argument. All options follow.
 | `-net-uart1` | `<port>` | Bridge UART1 TX/RX to TCP server socket. |
 | `-net-uart0-connect` | `<host:port>` | Connect UART0 to remote TCP host (client mode). |
 | `-net-uart1-connect` | `<host:port>` | Connect UART1 to remote TCP host (client mode). |
-| `-wire-uart0` | `<path>` | Wire UART0 to peer Bramble instance via Unix domain socket. First instance creates socket (listen), second connects (auto-negotiation). UART TX on one arrives as UART RX on other. |
+| `-wire-uart0` | `<path>` | Wire UART0 to peer Pico-emu instance via Unix domain socket. First instance creates socket (listen), second connects (auto-negotiation). UART TX on one arrives as UART RX on other. |
 | `-wire-uart1` | `<path>` | Wire UART1 via Unix domain socket. |
 | `-wire-gpio` | `<path>` | Wire GPIO pin state via Unix domain socket. Pin changes propagated between instances. |
 | `-wire-eth` | `<path>` | Wire Ethernet frames via Unix domain socket. Uses extended framing (2-byte LE length prefix). |
 | `-wifi` | | Enable CYW43439 WiFi chip emulation (Pico W). gSPI protocol via PIO0 SM0 FIFO intercept. |
 | `-tap` | `<ifname>` | Bridge CYW43 WLAN frames to host TAP interface. Implies `-wifi`. Auto-configures 192.168.4.1/24, IP forwarding, NAT masquerade. Requires sudo. |
-| `-net` | | Create TAP interface `bramble0` + NAT for internet bridge. Auto-sudo. Works independently of `-wifi`. |
-| `-net-peer` | `<path>` | Mesh with another Bramble instance via Unix socket at the Ethernet level. |
+| `-net` | | Create TAP interface `picoemu0` + NAT for internet bridge. Auto-sudo. Works independently of `-wifi`. |
+| `-net-peer` | `<path>` | Mesh with another Pico-emu instance via Unix socket at the Ethernet level. |
 | `-net-live` | | Enable W5500 live host sockets (TCP/UDP). Implies `-net`. |
 | `-sdd` | `<type[:opts]>` | Attach a software-defined device. Types: `thermometer[:temp=25,i2c=0,addr=0x48]`. |
 
@@ -1159,7 +1159,7 @@ The main execution loop polls `rv_membus_check_hart1_launch()` each iteration. W
 
 ```bash
 # Terminal 1: Start emulator with GDB server
-./bramble firmware.uf2 -gdb 3333
+./picoemu firmware.uf2 -gdb 3333
 
 # Terminal 2: Connect GDB (ARM)
 arm-none-eabi-gdb firmware.elf -ex "target remote :3333"
@@ -1239,7 +1239,7 @@ Condition types: `rN==val`, `rN!=val`, `rN<val`, `rN>val`, `*addr==val`, `*addr!
 All diagnostic output goes to stderr. Only firmware UART/USB output appears on stdout. This enables:
 
 ```bash
-./bramble firmware.uf2 > output.txt 2>debug.log
+./picoemu firmware.uf2 > output.txt 2>debug.log
 ```
 
 ---
@@ -1249,7 +1249,7 @@ All diagnostic output goes to stderr. Only firmware UART/USB output appears on s
 ## 10.1 Flash Persistence
 
 ```bash
-./bramble firmware.uf2 -flash storage.bin
+./picoemu firmware.uf2 -flash storage.bin
 ```
 
 **Startup behavior:**
@@ -1292,7 +1292,7 @@ SPI-mode eMMC emulation:
 ## 10.4 FUSE Mount
 
 ```bash
-./bramble firmware.uf2 -flash storage.bin -mount /tmp/pico-fs
+./picoemu firmware.uf2 -flash storage.bin -mount /tmp/pico-fs
 ```
 
 - Mounts the flash FAT12/FAT16 filesystem as a host directory via libfuse3.
@@ -1308,8 +1308,8 @@ SPI-mode eMMC emulation:
 ## 11.1 UART-to-TCP Bridge
 
 ```bash
-./bramble firmware.uf2 -net-uart0 9999    # Server mode
-./bramble firmware.uf2 -net-uart0-connect host:9999  # Client mode
+./picoemu firmware.uf2 -net-uart0 9999    # Server mode
+./picoemu firmware.uf2 -net-uart0-connect host:9999  # Client mode
 ```
 
 - Non-blocking I/O with `TCP_NODELAY` for low-latency byte-at-a-time transfer.
@@ -1321,12 +1321,12 @@ SPI-mode eMMC emulation:
 
 ```bash
 # Instance 1
-./bramble fw_sensor.uf2 -wire-uart0 /tmp/uart.sock
+./picoemu fw_sensor.uf2 -wire-uart0 /tmp/uart.sock
 # Instance 2 (auto-negotiates connection)
-./bramble fw_ctrl.uf2 -wire-uart0 /tmp/uart.sock
+./picoemu fw_ctrl.uf2 -wire-uart0 /tmp/uart.sock
 ```
 
-- Unix domain socket IPC between Bramble instances.
+- Unix domain socket IPC between Pico-emu instances.
 - Auto-negotiation: first instance creates socket (listen), second connects.
 - Wire message protocol: 4-byte header `{type, channel, length, reserved}` + payload.
 - Message types: `WIRE_MSG_UART_DATA`, `WIRE_MSG_GPIO_PIN`, `WIRE_MSG_SPI_XFER`.
@@ -1337,8 +1337,8 @@ SPI-mode eMMC emulation:
 ## 11.3 CYW43439 WiFi Emulation
 
 ```bash
-./bramble firmware.uf2 -wifi           # Basic emulation
-./bramble firmware.uf2 -wifi -tap tap0 # TAP bridge
+./picoemu firmware.uf2 -wifi           # Basic emulation
+./picoemu firmware.uf2 -wifi -tap tap0 # TAP bridge
 ```
 
 - CYW43439 WiFi chip emulation via gSPI protocol.
@@ -1401,7 +1401,7 @@ SPI-mode eMMC emulation:
 - Global mutex ("big lock") for all shared state.
 - WFI/WFE: releases mutex, sleeps on condition variable (zero host CPU usage while idle).
 - `corepool_wake_cores()` broadcasts condvar on interrupt delivery.
-- Core pool registry: file-based at `/tmp/bramble-corepool.reg`. Each instance registers its PID and core count. `-cores auto` queries the registry to find available cores.
+- Core pool registry: file-based at `/tmp/picoemu-corepool.reg`. Each instance registers its PID and core count. `-cores auto` queries the registry to find available cores.
 - Thread quantum (`-thread-quantum N`): number of guest instructions executed per lock acquisition. Default 64. Lower = more responsive to interrupts but higher lock overhead.
 
 ---
@@ -1412,14 +1412,14 @@ SPI-mode eMMC emulation:
 
 | Firmware | Version | Command | Status |
 |----------|---------|---------|--------|
-| MicroPython | v1.27.0 | `./bramble micropython.uf2 -stdin -clock 125 -flash mpy.bin` | Boots to interactive REPL via USB CDC |
-| CircuitPython | 10.1.3 | `./bramble circuitpython.uf2 -stdin -clock 125` | Boots, runs code.py via USB CDC |
-| littleOS | Latest | `./bramble littleos.uf2 -stdin -clock 125 -flash los.bin` | Full shell, SageLang, dual-core supervisor |
-| hello_world | -- | `./bramble hello_world.uf2` | Prints "Hello from Bramble RP2040 Emulator!" |
-| gpio_test | -- | `./bramble gpio_test.uf2` | Toggles GPIO 25 |
-| timer_test | -- | `./bramble timer_test.uf2` | Measures elapsed time |
-| alarm_test | -- | `./bramble alarm_test.uf2` | Tests timer alarms and interrupts |
-| interrupt_test | -- | `./bramble interrupt_test.uf2` | Exception handling and nesting |
+| MicroPython | v1.27.0 | `./picoemu micropython.uf2 -stdin -clock 125 -flash mpy.bin` | Boots to interactive REPL via USB CDC |
+| CircuitPython | 10.1.3 | `./picoemu circuitpython.uf2 -stdin -clock 125` | Boots, runs code.py via USB CDC |
+| littleOS | Latest | `./picoemu littleos.uf2 -stdin -clock 125 -flash los.bin` | Full shell, SageLang, dual-core supervisor |
+| hello_world | -- | `./picoemu hello_world.uf2` | Prints "Hello from Pico-emu RP2040 Emulator!" |
+| gpio_test | -- | `./picoemu gpio_test.uf2` | Toggles GPIO 25 |
+| timer_test | -- | `./picoemu timer_test.uf2` | Measures elapsed time |
+| alarm_test | -- | `./picoemu alarm_test.uf2` | Tests timer alarms and interrupts |
+| interrupt_test | -- | `./picoemu interrupt_test.uf2` | Exception handling and nesting |
 
 ## 13.2 RP2350 Firmware
 
@@ -1432,9 +1432,9 @@ SPI-mode eMMC emulation:
 Example commands:
 
 ```bash
-./bramble littleos_pico2.uf2 -arch m33 -clock 150
-./bramble littleos_pico2_riscv.uf2 -arch rv32 -clock 150
-./bramble micropython_pico2_rv.uf2 -arch rv32 -clock 150
+./picoemu littleos_pico2.uf2 -arch m33 -clock 150
+./picoemu littleos_pico2_riscv.uf2 -arch rv32 -clock 150
+./picoemu micropython_pico2_rv.uf2 -arch rv32 -clock 150
 ```
 
 RP2350 firmwares load, detect architecture via picobin/UF2 family ID, and execute through boot code. Full interactive output requires USB CDC enumeration completion (in progress).
@@ -1472,7 +1472,7 @@ All three architectures share the same peripheral bus implementation in `membus.
 
 - All firmware output (UART TX, USB CDC data) goes to `stdout`.
 - All emulator diagnostics (boot messages, debug output, statistics) go to `stderr`.
-- This enables clean piping: `./bramble firmware.uf2 > output.txt` captures only firmware output.
+- This enables clean piping: `./picoemu firmware.uf2 > output.txt` captures only firmware output.
 - All runtime `printf` calls in peripheral/CPU code are gated behind `cpu.debug_enabled` flag.
 
 ## 14.6 Flash Initialized to 0xFF
@@ -1484,10 +1484,10 @@ The `cpu.flash[]` array is initialized to `0xFF` (erased state) before firmware 
 # Part 15: Repository Structure
 
 ```
-bramble/
+picoemu/
 ├── CMakeLists.txt         Build config (v0.43.0)
 ├── build.sh               Build script
-├── README.md, CHANGELOG.md, Bramble_Guide.md
+├── README.md, CHANGELOG.md, Pico-emu_Guide.md
 │
 ├── src/
 │   ├── main.c             Entry point, CLI, loops

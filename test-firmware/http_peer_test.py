@@ -15,7 +15,7 @@ app exchange against the guest HTTP client:
 Exit 0 + ALL HTTP CHECKS PASSED on success. Guest prints ETH HTTP-DONE.
 
 Usage (two terminals):
-  ./build/bramble web/eth_http.uf2 -board pico-eth \\
+  ./build/picoemu web/eth_http.uf2 -board pico-eth \\
       -net-peer /tmp/httptest.sock
   python3 test-firmware/http_peer_test.py /tmp/httptest.sock
 

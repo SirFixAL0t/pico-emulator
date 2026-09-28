@@ -1,4 +1,4 @@
-# agent.md — Bramble gaps handover (M33 Arduino E2E DONE, uncommitted)
+# agent.md — Pico-emu gaps handover (M33 Arduino E2E DONE, uncommitted)
 
 Date: 2026-09-22. Commits: `f2a57eb` (eth gaps) → `83cfe07` (9 rows) →
 `e235008` (macraw+HOST_WAKE) → `6cd4c4b` (RECV refresh) → `830fb3c`
@@ -9,7 +9,7 @@ RV32 `rv_translate_shared_addr` mapped RP2350 PLL_SYS `0x40050000` to
 RP2040 PWM `0x40050000`, PWM handler won, PLL CS never LOCKED, SDK
 `pll_init` spun at `PC=0x10001C06` — fixed with an RV32 clock-domain
 bypass in `rv_membus.c`, `test_rv_clocks_pll_sys` added).
-`./build/bramble_tests` **431/431**; WASM rebuilt (`326K` + threads,
+`./build/picoemu_tests` **431/431**; WASM rebuilt (`326K` + threads,
 `test-wasm.js` + `test-wasm-ble.js` PASS); Arduino M33 E2E + in-tree
 DORA x3 re-verified green.
 Remaining: MP `import bluetooth` HCI work.
@@ -123,7 +123,7 @@ Do NOT commit (now gitignored build artifacts): `test-firmware/*.bin`,
   guest prints `ETH HTTP-DONE` on all arches.
 - Dead-peer sweep lines (`ETH MACRAW-OK`, 3M steps): PASS x3 via the
   same `run_eth` helper.
-- `./build/bramble_tests`: **411/411 passed, 0 failed**.
+- `./build/picoemu_tests`: **411/411 passed, 0 failed**.
 - Full `./test-firmware/sweep_all.sh build`: **59 passed, 1 failed** —
   the single failure is `wifi_join_rv32.uf2` (want `RV32 JOIN DONE`), a
   **pre-existing flake on main** (documented in the `93b962a` message;
@@ -214,7 +214,7 @@ behaviour; `parse_tcp_from_guest` itself was correct — blobs verify.)
 python3 test-firmware/build_eth.py --gen-http http-all
 
 # M0 E2E (two terminals; guest first):
-./build/bramble web/eth_http.uf2 -board pico-eth -net-peer /tmp/m0.sock \
+./build/picoemu web/eth_http.uf2 -board pico-eth -net-peer /tmp/m0.sock \
   -clock 125 -timeout 90 -max-steps 2000000000
 python3 test-firmware/http_peer_test.py /tmp/m0.sock   # expect ALL HTTP CHECKS PASSED
 
@@ -222,11 +222,11 @@ python3 test-firmware/http_peer_test.py /tmp/m0.sock   # expect ALL HTTP CHECKS 
 # RV32 E2E: web/eth_http_rv32.uf2 -board pico-eth -arch rv32
 
 # sweep-style dead-peer check (no peer needed):
-./build/bramble web/eth_http.uf2 -board pico-eth -net-peer /tmp/dead.sock \
+./build/picoemu web/eth_http.uf2 -board pico-eth -net-peer /tmp/dead.sock \
   -clock 125 -timeout 50 -max-steps 3000000   # expect ETH DHCP-START + ETH MACRAW-OK
 
 # native unit tests:
-./build/bramble_tests   # 411/411
+./build/picoemu_tests   # 411/411
 ```
 
 ## 7. Round-2 commit `63bf2a6` (pushed)
@@ -247,7 +247,7 @@ Prior round (already in `bc12b6f`):
 1. ~~**Sweep wiring**~~ — DONE: `test-firmware/sweep_all.sh` has dead-peer
    `ETH MACRAW-OK` lines for all 3 HTTP guests (verified PASS x3).
 2. ~~**Docs**~~ — DONE: `docs/NETWORKING.md` HTTP row ✅, NOT-done cell updated.
-  3. **WASMs** — `web/bramble.wasm*.wasm` are tracked and were rebuilt for
+  3. **WASMs** — `web/picoemu.wasm*.wasm` are tracked and were rebuilt for
      eth-dhcp at HEAD. eth_http adds UF2s only (no `src/` change), so no WASM
      rebuild was done.
   4. ~~**Commit bc12b6f**~~ — DONE (`src/` untouched, artifacts excluded).
@@ -267,7 +267,7 @@ Round B (THIS round, uncommitted until §7c): all 9 rows + BLE LISTEN fix:
   (`run_ble` + 2 lines)
 - `src/devtools.c` / `include/devtools.h` (HSTX serializer + TMDS,
   TRNG EHR stream, SHA-256 digest), `src/membus.c` (HSTX FIFO block +
-  TRNG writes), `src/main.c` + `src/bramble_wasm.c` (init calls)
+  TRNG writes), `src/main.c` + `src/picoemu_wasm.c` (init calls)
 - `src/nvic.c` / `include/nvic.h` (SAU/MPU/faults/TT), `src/thumb32.c`
   (DSP scalar + MVE vectors + VFP/DCP dual-core comment),
   `src/cpu.c` + `include/emulator.h` (VFP/DCP/VPR context save),
@@ -282,7 +282,7 @@ Round B (THIS round, uncommitted until §7c): all 9 rows + BLE LISTEN fix:
   `README.md` + `docs/PICOEMU.md` + `docs/WASM.md` (425 counts),
   `web/docs.html` (all 9 rows done), `web/about.html` (425 + TZ/DSP/MVE
   prose), `web/README.md` (sweep-locked extras), this `agent.md`
-- `web/bramble.wasm.*` rebuilt from current sources (see §7c)
+- `web/picoemu.wasm.*` rebuilt from current sources (see §7c)
 
 Suggested message: `all 9 support rows done: B-package ADC/PWM/DMA, HSTX/TRNG/SHA-256, SAU/MPU, DSP/MVE, Zfinx, ARM BLE LISTEN (425/426, sweep 61/62)`
 (body: per-row files + tests above; BLE triple-fix; sweep 61/62 with
@@ -398,7 +398,7 @@ always (the REL→12 theory was wrong — that failure was stale outputs).
   sweep 60 count), `docs/GATEWAY.md` (wired-ethernet gateway recipe),
   `docs/WASM.md` (411 + preset lists), `docs/ROADMAP.md` (unreleased
   row), `CHANGELOG.md` (unreleased section).
-- `web/bramble.wasm.{js,wasm,threads.js,threads.wasm}` rebuilt from
+- `web/picoemu.wasm.{js,wasm,threads.js,threads.wasm}` rebuilt from
   current sources (`build_wasm.sh` + `build_wasm_threads.sh`);
   `test-wasm.js` PASS, `test-wasm-ble.js` PASS, `test-wasm-gateway.js`
   hangs identically on clean HEAD (pre-existing, unrelated).

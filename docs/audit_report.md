@@ -1,4 +1,4 @@
-# Bramble Emulator - Comprehensive Audit Report
+# Pico-emu Emulator - Comprehensive Audit Report
 
 **Date:** 2026-06-28  
 **Auditor:** Automated codebase audit  
@@ -70,7 +70,7 @@ reason noted). Nothing remains UNTRIAGED.
 | H13 ELF 2MB/264KB limits | FIXED | `region_contains(FLASH_BASE, FLASH_SIZE_MAX, …)` (`src/elf.c:219,265`) |
 | H14 GDB no checksum | FIXED | validate + NAK (`src/gdb.c:319`, tagged H14) |
 | H15 SIGPIPE on GDB write | FIXED | `send(MSG_NOSIGNAL)` with `write` fallback (`src/gdb.c`) |
-| H16 no RV GDB | FIXED | `gdb_rv_harts[2]`, RV stop checks (`src/gdb.c:86,354`, `src/bramble_wasm.c:400`) |
+| H16 no RV GDB | FIXED | `gdb_rv_harts[2]`, RV stop checks (`src/gdb.c:86,354`, `src/picoemu_wasm.c:400`) |
 | H17 RV missing watchdog/fault/script | FIXED | all four in RV loop (`src/main.c`, tagged H17) |
 | H18 `flash_persist_sync` overflow | FIXED | safe `offset/len` guard (`src/storage.c:51`) |
 | H19 USB DPRAM overflow | FIXED | `off+4 > SIZE` guard (`src/usb.c:737`, tagged H19) |
@@ -1705,7 +1705,7 @@ if (addr == SIO_BASE + 0x5C) {
 
 ---
 
-### L42. Predictable `/tmp/bramble-corepool.reg` path
+### L42. Predictable `/tmp/picoemu-corepool.reg` path
 
 | Field | Value |
 |-------|-------|
@@ -1713,7 +1713,7 @@ if (addr == SIO_BASE + 0x5C) {
 | **Category** | SECURITY |
 | **Severity** | Low |
 
-**Description:** The registry file defaults to `/tmp/bramble-corepool.reg`. On a multi-user system, an attacker could pre-create this file or a symlink at this path.
+**Description:** The registry file defaults to `/tmp/picoemu-corepool.reg`. On a multi-user system, an attacker could pre-create this file or a symlink at this path.
 
 **Fix:** Use `mkstemp` or a per-user path under `$XDG_RUNTIME_DIR`, and use `O_NOFOLLOW` to prevent symlink attacks.
 

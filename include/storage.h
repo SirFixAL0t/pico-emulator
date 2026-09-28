@@ -11,7 +11,7 @@
  * allowing external tools to mount and inspect the filesystem at any time.
  *
  * Usage:
- *   ./bramble firmware.uf2 -flash fs.bin
+ *   ./picoemu firmware.uf2 -flash fs.bin
  *   # In another terminal:
  *   sudo mount -o loop,offset=1048576 fs.bin /mnt/pico
  * ======================================================================== */

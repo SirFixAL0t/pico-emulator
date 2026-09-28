@@ -4,7 +4,7 @@ void setup() {
   delay(2000);
   Serial.println("CLI-START");
   WiFi.config(IPAddress(192, 168, 4, 201), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-  WiFi.begin("BrambleNet", "testpassword");
+  WiFi.begin("Pico-emuNet", "testpassword");
   delay(3000);
   Serial.print("CLIIP=");
   Serial.println(WiFi.localIP());

@@ -43,8 +43,8 @@
 extern int wasm_corepool_num_cores(void);
 extern void wasm_corepool_set_num_cores(int n);
 extern void corepool_set_step_quantum(int q);
-extern int bramble_net_pop_rx(uint8_t *out, int maxlen);
-extern void bramble_wire_push_rx(const uint8_t *data, int len);
+extern int picoemu_net_pop_rx(uint8_t *out, int maxlen);
+extern void picoemu_wire_push_rx(const uint8_t *data, int len);
 
 /* UF2 block structure (copied from uf2.c) */
 typedef struct {
@@ -71,7 +71,7 @@ static rv_membus_state_t rv_bus;
 static rv_icache_t rv_icache;
 static int current_arch = 1;
 
-/* WASM device instances (defined early for bramble_step polling) */
+/* WASM device instances (defined early for picoemu_step polling) */
 static sdcard_t wasm_sdcard;
 static int wasm_sdcard_on = 0;
 static emmc_t wasm_emmc;
@@ -122,7 +122,7 @@ int __attribute__((used)) putchar(int c) {
     return c;
 }
 
-int bramble_init(int arch) {
+int picoemu_init(int arch) {
     current_arch = arch;
     cpu_init();
     memset(cpu.flash, 0xFF, FLASH_SIZE_MAX);
@@ -176,7 +176,7 @@ int bramble_init(int arch) {
     return 1;
 }
 
-int bramble_load_uf2(const uint8_t *data, int len) {
+int picoemu_load_uf2(const uint8_t *data, int len) {
     FILE *f = fopen("/tmp/fw.uf2", "wb");
     if (!f) return 0;
     fwrite(data, 1, len, f);
@@ -187,7 +187,7 @@ int bramble_load_uf2(const uint8_t *data, int len) {
     return ret;
 }
 
-int bramble_load_elf(const uint8_t *data, int len) {
+int picoemu_load_elf(const uint8_t *data, int len) {
     FILE *f = fopen("/tmp/fw.elf", "wb");
     if (!f) return 0;
     fwrite(data, 1, len, f);
@@ -195,7 +195,7 @@ int bramble_load_elf(const uint8_t *data, int len) {
     return load_elf("/tmp/fw.elf");
 }
 
-void bramble_reset(void) {
+void picoemu_reset(void) {
     if (current_arch == ARCH_RV32) {
         picobin_info_t pbi = picobin_scan(cpu.flash, 4096);
         if (pbi.found && pbi.entry_pc != 0) {
@@ -216,7 +216,7 @@ void bramble_reset(void) {
     }
 }
 
-void bramble_set_clock(int freq_mhz) {
+void picoemu_set_clock(int freq_mhz) {
     timing_set_clock_mhz((uint32_t)freq_mhz);
     /* RV CLINT latches its rate at init; keep it in sync so the clock
      * dropdown affects RV32 timer/mtime too (ARM paths read the global
@@ -226,7 +226,7 @@ void bramble_set_clock(int freq_mhz) {
 }
 
 /* Read one byte from UART TX buffer (firmware output). Returns -1 if empty. */
-int bramble_read_uart(void) {
+int picoemu_read_uart(void) {
     if (uart_tx_tail != uart_tx_head) {
         int ch = uart_tx_buf[uart_tx_tail];
         uart_tx_tail = (uart_tx_tail + 1) % UART_TX_BUF_SIZE;
@@ -236,7 +236,7 @@ int bramble_read_uart(void) {
 }
 
 /* Read up to max_len bytes from UART TX buffer. Returns bytes read. */
-int bramble_read_uart_bulk(uint8_t *dest, int max_len) {
+int picoemu_read_uart_bulk(uint8_t *dest, int max_len) {
     int count = 0;
     while (count < max_len && uart_tx_tail != uart_tx_head) {
         dest[count++] = uart_tx_buf[uart_tx_tail];
@@ -246,7 +246,7 @@ int bramble_read_uart_bulk(uint8_t *dest, int max_len) {
 }
 
 /* Push a byte into UART RX FIFO (firmware input). */
-void bramble_write_uart(int ch) {
+void picoemu_write_uart(int ch) {
     int next = (uart_rx_head + 1) % 256;
     if (next != uart_rx_tail) {
         uart_rx_buf[uart_rx_head] = (uint8_t)ch;
@@ -282,7 +282,7 @@ static void feed_uart_rx(void) {
     /* Drain WebSocket net RX queue into guest console as well */
     {
         uint8_t tmp[256];
-        int n = bramble_net_pop_rx(tmp, sizeof(tmp));
+        int n = picoemu_net_pop_rx(tmp, sizeof(tmp));
         for (int i = 0; i < n; i++) {
             if (usb_cdc_stdio_active()) {
                 if (!usb_cdc_rx_push((uint8_t)tmp[i]))
@@ -294,35 +294,35 @@ static void feed_uart_rx(void) {
     }
 }
 
-int bramble_get_gpio(int pin) {
+int picoemu_get_gpio(int pin) {
     return gpio_get_pin((uint8_t)pin);
 }
 
-int bramble_get_gpio_raw(int pin) {
+int picoemu_get_gpio_raw(int pin) {
     if (pin < 0 || pin >= 48) return 0;
     if (pin < 32) return (int)((gpio_state.gpio_out >> (uint32_t)pin) & 1u);
     return (int)((gpio_state.gpio_out_hi >> (uint32_t)(pin - 32)) & 1u);
 }
 
-uint32_t bramble_get_gpio_out(void) {
+uint32_t picoemu_get_gpio_out(void) {
     return gpio_state.gpio_out;
 }
 
-uint32_t bramble_get_gpio_oe(void) {
+uint32_t picoemu_get_gpio_oe(void) {
     return gpio_state.gpio_oe;
 }
 
-void bramble_set_gpio(int pin, int val) {
+void picoemu_set_gpio(int pin, int val) {
     gpio_set_pin((uint8_t)pin, (uint8_t)val);
 }
 
-uint32_t bramble_mem_read32(uint32_t addr) {
+uint32_t picoemu_mem_read32(uint32_t addr) {
     if (current_arch == ARCH_RV32)
         return rv_mem_read32(&rv_bus, addr);
     return mem_read32(addr);
 }
 
-void bramble_mem_write32(uint32_t addr, uint32_t val) {
+void picoemu_mem_write32(uint32_t addr, uint32_t val) {
     if (current_arch == ARCH_RV32) {
         rv_mem_write32(&rv_bus, addr, val);
         return;
@@ -331,7 +331,7 @@ void bramble_mem_write32(uint32_t addr, uint32_t val) {
 }
 
 /* WASM watchdog reboot (mirrors main.c reboot_from_watchdog, minus CLI paths) */
-static void bramble_watchdog_reboot(void) {
+static void picoemu_watchdog_reboot(void) {
     watchdog_reboot_pending = 0;
     clocks_state.wdog_ctrl &= ~(1u << 31);
     reset_runtime_peripherals();
@@ -347,42 +347,42 @@ static void bramble_watchdog_reboot(void) {
     }
 }
 
-/* GDB stop state for UI polling (non-blocking RSP via bramble_gdb_poll) */
+/* GDB stop state for UI polling (non-blocking RSP via picoemu_gdb_poll) */
 static int wasm_gdb_enabled = 0;
 static int wasm_gdb_hit = 0;
 static int wasm_gdb_hit_core = 0;
 
-int bramble_gdb_enable(int on) {
+int picoemu_gdb_enable(int on) {
     wasm_gdb_enabled = on ? 1 : 0;
     if (on) {
-        bramble_gdb_start();
-        bramble_gdb_notify_stop();
+        picoemu_gdb_start();
+        picoemu_gdb_notify_stop();
     } else {
-        bramble_gdb_stop();
+        picoemu_gdb_stop();
         wasm_gdb_hit = 0;
     }
     return wasm_gdb_enabled;
 }
-int bramble_gdb_is_hit(void) { return wasm_gdb_hit; }
-int bramble_gdb_hit_core(void) { return wasm_gdb_hit_core; }
-void bramble_gdb_break(void) {
+int picoemu_gdb_is_hit(void) { return wasm_gdb_hit; }
+int picoemu_gdb_hit_core(void) { return wasm_gdb_hit_core; }
+void picoemu_gdb_break(void) {
     if (wasm_gdb_enabled && gdb.active) {
         /* Inject Ctrl-C like native 'pkt[0]==0x03' path */
         uint8_t c = 0x03;
-        bramble_gdb_push_rx(&c, 1);
+        picoemu_gdb_push_rx(&c, 1);
     }
 }
-/* Called each bramble_step while stopped: drain one RSP packet.
+/* Called each picoemu_step while stopped: drain one RSP packet.
  * Returns 0=resume, 1=resume+single-step once, 2=stay stopped, -1=detached. */
-static int bramble_gdb_service_stopped(void) {
-    int r = bramble_gdb_poll();
+static int picoemu_gdb_service_stopped(void) {
+    int r = picoemu_gdb_poll();
     if (r == 0) { wasm_gdb_hit = 0; return 0; }
     if (r == 1) { wasm_gdb_hit = 0; return 1; }
     if (r == -1) { wasm_gdb_hit = 0; wasm_gdb_enabled = 0; return 0; }
     return 2;
 }
 
-int bramble_step(int n_instructions) {
+int picoemu_step(int n_instructions) {
     if (timing_config.cycles_per_us == 0)
         timing_set_clock_mhz(1);
     int ncores = wasm_corepool_num_cores();
@@ -395,14 +395,14 @@ int bramble_step(int n_instructions) {
         while (total < n_instructions) {
             /* If stopped on breakpoint, service RSP without advancing */
             if (wasm_gdb_hit) {
-                int svc = bramble_gdb_service_stopped();
+                int svc = picoemu_gdb_service_stopped();
                 if (svc == 2) break; /* still stopped */
                 if (svc == 1) {
                     /* single-step once then re-stop */
                     if (!rv_rom_intercept(&rv_cores[0])) rv_cpu_step(&rv_cores[0]);
                     total++;
                     wasm_gdb_hit = 1;
-                    bramble_gdb_notify_stop();
+                    picoemu_gdb_notify_stop();
                     break;
                 }
                 /* svc==0 resumed */
@@ -411,13 +411,13 @@ int bramble_step(int n_instructions) {
             if (wasm_gdb_enabled && gdb.active && !wasm_gdb_hit) {
                 if (gdb_should_stop(rv_cores[0].pc, 0)) {
                     wasm_gdb_hit = 1; wasm_gdb_hit_core = 0; gdb.stop_core = 0;
-                    bramble_gdb_notify_stop();
+                    picoemu_gdb_notify_stop();
                     break;
                 }
                 if (wasm_corepool_num_cores() > 1 && !rv_cores[1].is_halted &&
                     gdb_should_stop(rv_cores[1].pc, 1)) {
                     wasm_gdb_hit = 1; wasm_gdb_hit_core = 1; gdb.stop_core = 1;
-                    bramble_gdb_notify_stop();
+                    picoemu_gdb_notify_stop();
                     break;
                 }
             }
@@ -482,7 +482,7 @@ int bramble_step(int n_instructions) {
                 if (wasm_sdcard_on) sdcard_flush(&wasm_sdcard);
                 if (wasm_emmc_on) emmc_flush(&wasm_emmc);
             }
-            if (watchdog_reboot_pending) bramble_watchdog_reboot();
+            if (watchdog_reboot_pending) picoemu_watchdog_reboot();
             if (rv_cores[0].csr[CSR_MCAUSE] == MCAUSE_BREAKPOINT && rv_cores[0].x[10] == 0x20026)
                 break;
             if (total >= n_instructions)
@@ -496,13 +496,13 @@ int bramble_step(int n_instructions) {
         extern cpu_state_dual_t cores[2];
         while (total < n_instructions) {
             if (wasm_gdb_hit) {
-                int svc = bramble_gdb_service_stopped();
+                int svc = picoemu_gdb_service_stopped();
                 if (svc == 2) break;
                 if (svc == 1) {
                     cpu_step_core((int)wasm_gdb_hit_core);
                     total++;
                     wasm_gdb_hit = 1;
-                    bramble_gdb_notify_stop();
+                    picoemu_gdb_notify_stop();
                     break;
                 }
             }
@@ -511,7 +511,7 @@ int bramble_step(int n_instructions) {
                 for (int gc = 0; gc < ncores; gc++) {
                     if (!cores[gc].is_halted && gdb_should_stop(cores[gc].r[15], gc)) {
                         wasm_gdb_hit = 1; wasm_gdb_hit_core = gc; gdb.stop_core = gc;
-                        bramble_gdb_notify_stop();
+                        picoemu_gdb_notify_stop();
                         stop = 1; break;
                     }
                 }
@@ -522,7 +522,7 @@ int bramble_step(int n_instructions) {
             /* WFI fast-forward (native dual_core_step mirror): when every
              * active core is asleep, jump guest time to the next timer
              * deadline instead of spinning. Skipped cycles count against
-             * the budget so bramble_step(n) keeps its contract. */
+             * the budget so picoemu_step(n) keeps its contract. */
             extern cpu_state_dual_t cores[2];
             int c0sleep = cores[0].is_wfi;
             int c1gone = (ncores <= 1 || cpu_is_halted_core(1) || cores[1].is_wfi);
@@ -591,7 +591,7 @@ int bramble_step(int n_instructions) {
                 if (wasm_sdcard_on) sdcard_flush(&wasm_sdcard);
                 if (wasm_emmc_on) emmc_flush(&wasm_emmc);
             }
-            if (watchdog_reboot_pending) bramble_watchdog_reboot();
+            if (watchdog_reboot_pending) picoemu_watchdog_reboot();
             if (total >= n_instructions)
                 break;
         }
@@ -600,13 +600,13 @@ int bramble_step(int n_instructions) {
     }
 }
 
-int bramble_is_halted(void) {
+int picoemu_is_halted(void) {
     if (current_arch == ARCH_RV32)
         return rv_cpu_is_halted(&rv_cores[0]);
     return cpu_is_halted_core(0);
 }
 
-void bramble_get_core_state(int core, uint32_t *pc, uint32_t *sp) {
+void picoemu_get_core_state(int core, uint32_t *pc, uint32_t *sp) {
     if (current_arch == ARCH_RV32) {
         if (core == 0) { *pc = rv_cores[0].pc; *sp = rv_cores[0].x[2]; }
         else { *pc = rv_cores[1].pc; *sp = rv_cores[1].x[2]; }
@@ -617,16 +617,16 @@ void bramble_get_core_state(int core, uint32_t *pc, uint32_t *sp) {
     }
 }
 
-uint8_t *bramble_get_flash_ptr(void) {
+uint8_t *picoemu_get_flash_ptr(void) {
     return cpu.flash;
 }
 
-uint8_t *bramble_get_sram_ptr(void) {
+uint8_t *picoemu_get_sram_ptr(void) {
     return rv_bus.sram;
 }
 
 /* USB comprehesion probe: (enum<<16)|ctrl_state, for diagnosing stalls */
-uint32_t bramble_usb_state32(void) {
+uint32_t picoemu_usb_state32(void) {
     extern int usb_enum_state_dbg(void);
     extern int usb_ctrl_state_dbg(void);
     return ((uint32_t)(uint32_t)usb_enum_state_dbg() << 16) |
@@ -635,15 +635,15 @@ uint32_t bramble_usb_state32(void) {
 
 /* ============ Completed WASM controls (cores/JIT/debug/flash/SD/net) ============ */
 
-void bramble_set_cores(int n) {
+void picoemu_set_cores(int n) {
     wasm_corepool_set_num_cores(n);
     if (n == 1) num_active_cores = 1;
     else if (n == 2) num_active_cores = 2;
 }
-int bramble_get_cores(void) { return wasm_corepool_num_cores(); }
-void bramble_set_quantum(int q) { corepool_set_step_quantum(q); }
-void bramble_set_jit(int on) { jit_enable(on ? 1 : 0); }
-void bramble_set_debug(int on, int core) {
+int picoemu_get_cores(void) { return wasm_corepool_num_cores(); }
+void picoemu_set_quantum(int q) { corepool_set_step_quantum(q); }
+void picoemu_set_jit(int on) { jit_enable(on ? 1 : 0); }
+void picoemu_set_debug(int on, int core) {
     extern cpu_state_dual_t cores[2];
     if (core < 0 || core > 1) {
         cores[0].debug_enabled = on ? 1 : 0;
@@ -656,10 +656,10 @@ void bramble_set_debug(int on, int core) {
         cores[core].debug_enabled = on ? 1 : 0;
     }
 }
-void bramble_set_semihosting(int on) { semihosting_enabled = on ? 1 : 0; }
+void picoemu_set_semihosting(int on) { semihosting_enabled = on ? 1 : 0; }
 
 /* Flash persistence via MEMFS (/flash.bin + /persist for IDBFS) */
-int bramble_flash_save(void) {
+int picoemu_flash_save(void) {
     FILE *f = fopen("/flash.bin", "wb");
     if (!f) return 0;
     size_t n = fwrite(cpu.flash, 1, FLASH_SIZE_MAX, f);
@@ -667,15 +667,15 @@ int bramble_flash_save(void) {
     EM_ASM({ try { if (typeof FS !== 'undefined' && FS.syncfs) FS.syncfs(function(){}); } catch(e) {} });
     return (int)n;
 }
-int bramble_flash_load(void) {
+int picoemu_flash_load(void) {
     FILE *f = fopen("/flash.bin", "rb");
-    if (!f) f = fopen("/persist/bramble_flash.bin", "rb");
+    if (!f) f = fopen("/persist/picoemu_flash.bin", "rb");
     if (!f) return 0;
     size_t n = fread(cpu.flash, 1, FLASH_SIZE_MAX, f);
     fclose(f);
     return (int)n;
 }
-int bramble_flash_write(const uint8_t *data, int len, int offset) {
+int picoemu_flash_write(const uint8_t *data, int len, int offset) {
     if (!data || len <= 0) return 0;
     if (offset < 0) offset = 0;
     if ((uint32_t)offset >= FLASH_SIZE_MAX) return 0;
@@ -685,7 +685,7 @@ int bramble_flash_write(const uint8_t *data, int len, int offset) {
 }
 
 /* SD/eMMC images from JS buffers -> MEMFS -> native init + SPI attach */
-int bramble_sdcard_load(const uint8_t *data, int len, int spi_num) {
+int picoemu_sdcard_load(const uint8_t *data, int len, int spi_num) {
     if (!data || len <= 0) return -1;
     FILE *f = fopen("/sdcard.img", "wb");
     if (!f) return -1;
@@ -699,7 +699,7 @@ int bramble_sdcard_load(const uint8_t *data, int len, int spi_num) {
     wasm_sdcard_on = 1;
     return 0;
 }
-int bramble_emmc_load(const uint8_t *data, int len, int spi_num) {
+int picoemu_emmc_load(const uint8_t *data, int len, int spi_num) {
     if (!data || len <= 0) return -1;
     FILE *f = fopen("/emmc.img", "wb");
     if (!f) return -1;
@@ -715,7 +715,7 @@ int bramble_emmc_load(const uint8_t *data, int len, int spi_num) {
 }
 
 /* Virtual net + W5500 + SDD + pico-eth board */
-int bramble_net_enable(int live) {
+int picoemu_net_enable(int live) {
     if (!wasm_vnet_on) { vnet_init(); wasm_vnet_on = 1; }
     if (live && !wasm_w5500_on) {
         w5500_init(&wasm_w5500);
@@ -725,18 +725,18 @@ int bramble_net_enable(int live) {
     return 1;
 }
 /* Called by w5500_macraw_attach() (shared with native): the MACRAW path
- * brought vnet up itself, so mark the WASM flag — otherwise bramble_step
+ * brought vnet up itself, so mark the WASM flag — otherwise picoemu_step
  * skips vnet_poll() and gateway frames never arrive. */
 void w5500_macraw_vnet_mark(void) {
     wasm_vnet_on = 1;
 }
 /* Single-gateway switch for the browser/Node UI (default ON). */
-void bramble_w5500_gw_enable(int on) {
+void picoemu_w5500_gw_enable(int on) {
     w5500_gw_enable_set(on);
 }
 /* pico-eth board (WIZnet W5500-EVB-Pico) for the browser/Node builds.
  * on=0 detaches; live=1 mirrors SEND to the WS proxy like -net-live. */
-int bramble_board_eth(int on, int live, int spi) {
+int picoemu_board_eth(int on, int live, int spi) {
     if (!on) { w5500_board_detach(); return 0; }
     if (spi < 0 || spi > 1) spi = 0;
     if (w5500_board_enabled()) {
@@ -746,14 +746,14 @@ int bramble_board_eth(int on, int live, int spi) {
     w5500_board_attach(spi, live);
     return 1;
 }
-int bramble_sdd_add(const char *arg) {
+int picoemu_sdd_add(const char *arg) {
     if (!arg) return -1;
     sdd_init();
     return sdd_create_from_arg((char*)arg);
 }
 /* ETH mesh RX from BroadcastChannel/WebSocket proxy -> vnet */
 static int eth_from_gateway = 0;  /* guard: don't mirror gateway frames back */
-int bramble_eth_push_rx(const uint8_t *data, int len) {
+int picoemu_eth_push_rx(const uint8_t *data, int len) {
     if (!data || len < 14 || len > 1522) return -1;
     if (!wasm_vnet_on) { vnet_init(); wasm_vnet_on = 1; }
     eth_from_gateway = 1;
@@ -763,7 +763,7 @@ int bramble_eth_push_rx(const uint8_t *data, int len) {
 }
 
 /* WS gateway uplink: ring of guest-originated ETH frames for the browser
- * to forward (raw) to the Go gateway. Enabled via bramble_eth_set_uplink. */
+ * to forward (raw) to the Go gateway. Enabled via picoemu_eth_set_uplink. */
 #define WS_UPLINK_N 32
 #define WS_UPLINK_MTU 1522
 static uint8_t ws_up_buf[WS_UPLINK_N][WS_UPLINK_MTU];
@@ -780,7 +780,7 @@ static void ws_uplink_mirror(const uint8_t *frame, int len) {
     ws_up_head = n;
 }
 
-void bramble_eth_set_uplink(int on) {
+void picoemu_eth_set_uplink(int on) {
     ws_up_on = on ? 1 : 0;
     if (on) {
         if (!wasm_vnet_on) { vnet_init(); wasm_vnet_on = 1; }
@@ -804,7 +804,7 @@ static void wifi_ensure_init(void) {
     if (!wasm_vnet_on) { vnet_init(); wasm_vnet_on = 1; }
     cyw43_vnet_attach();
 }
-int bramble_wifi_enable(int nodhcp) {
+int picoemu_wifi_enable(int nodhcp) {
     if (nodhcp) cyw43_no_fake_dhcp = 1;
     wifi_ensure_init();
     return 1;
@@ -812,7 +812,7 @@ int bramble_wifi_enable(int nodhcp) {
 
 /* Drain one queued frame into out[], up to maxlen. Returns frame length,
  * 0 when empty, -1 when the frame doesn't fit (retry with bigger buffer). */
-int bramble_eth_pop_tx(uint8_t *out, int maxlen) {
+int picoemu_eth_pop_tx(uint8_t *out, int maxlen) {
     if (ws_up_head == ws_up_tail) return 0;
     int len = ws_up_len[ws_up_tail];
     if (!out || len > maxlen) return -1;
@@ -823,57 +823,57 @@ int bramble_eth_pop_tx(uint8_t *out, int maxlen) {
 
 /* BLE HCI uplink for browsers (mirrors --bt-hci without sockets):
  * enable JS H4 ring, drain guest->controller packets, inject replies. */
-int bramble_bt_hci_enable(int on) {
+int picoemu_bt_hci_enable(int on) {
     wifi_ensure_init();
     cyw43_bt_hci_js_enable(on);
     return 1;
 }
-int bramble_bt_hci_pop_tx(uint8_t *out, int maxlen) {
+int picoemu_bt_hci_pop_tx(uint8_t *out, int maxlen) {
     return cyw43_bt_hci_js_pop(out, maxlen);
 }
-int bramble_bt_hci_push_rx(const uint8_t *data, int len) {
+int picoemu_bt_hci_push_rx(const uint8_t *data, int len) {
     if (!data || len < 2 || len > 1088) return -1;
     cyw43_bt_hci_js_push(data, len);
     return 0;
 }
 /* W5500 proxy RX into live device(s). The pico-eth board owns its own
  * instance; when it is on, the proxy targets it (same 8-socket model). */
-int bramble_w5500_push_rx(int sock, const uint8_t *data, int len) {
-    extern int bramble_w5500_dev_push_rx(w5500_t *dev, int sock, const uint8_t *data, int len);
+int picoemu_w5500_push_rx(int sock, const uint8_t *data, int len) {
+    extern int picoemu_w5500_dev_push_rx(w5500_t *dev, int sock, const uint8_t *data, int len);
     if (w5500_board_enabled())
-        return bramble_w5500_dev_push_rx(w5500_board_dev(), sock, data, len);
+        return picoemu_w5500_dev_push_rx(w5500_board_dev(), sock, data, len);
     if (!wasm_w5500_on) return -1;
-    return bramble_w5500_dev_push_rx(&wasm_w5500, sock, data, len);
+    return picoemu_w5500_dev_push_rx(&wasm_w5500, sock, data, len);
 }
-int bramble_w5500_push_status(int sock, int code) {
-    extern int bramble_w5500_dev_push_status(w5500_t *dev, int sock, int code);
+int picoemu_w5500_push_status(int sock, int code) {
+    extern int picoemu_w5500_dev_push_status(w5500_t *dev, int sock, int code);
     if (w5500_board_enabled())
-        return bramble_w5500_dev_push_status(w5500_board_dev(), sock, code);
+        return picoemu_w5500_dev_push_status(w5500_board_dev(), sock, code);
     if (!wasm_w5500_on) return -1;
-    return bramble_w5500_dev_push_status(&wasm_w5500, sock, code);
+    return picoemu_w5500_dev_push_status(&wasm_w5500, sock, code);
 }
 
 /* Devtools: all 18 tools over MEMFS (tmp bins) + query hooks */
-int bramble_coverage_start(void) { coverage_init(); coverage_enabled = 1; return 1; }
-int bramble_coverage_dump(void) { coverage_dump("/coverage.bin"); coverage_report(); return 1; }
-int bramble_trace_start(void) { trace_init("/trace.bin"); return 1; }
-void bramble_trace_stop(void) { trace_cleanup(); }
-int bramble_hotspots_start(int n) { hotspots_init(); hotspots_enabled = 1; hotspots_top_n = n > 0 ? n : 20; return 1; }
-int bramble_hotspots_report(void) { hotspots_report(); return 1; }
-int bramble_profile_start(void) { profile_init(); profile_enabled = 1; return 1; }
-int bramble_profile_dump(void) { profile_dump("/profile.csv"); profile_report(); return 1; }
-int bramble_callgraph_start(void) { callgraph_init(); callgraph_enabled = 1; return 1; }
-int bramble_callgraph_dump(void) { callgraph_dump("/callgraph.dot"); return 1; }
-int bramble_gpiotrace_start(void) { gpio_trace_init("/gpio.vcd"); return 1; }
-void bramble_gpiotrace_stop(void) { gpio_trace_cleanup(); }
-int bramble_irqlat_start(void) { irq_latency_enabled = 1; return 1; }
-int bramble_irqlat_report(void) { irq_latency_report(); return 1; }
-int bramble_stackcheck_start(void) { stack_check_enabled = 1; return 1; }
-int bramble_stackcheck_report(void) { stack_check_report(); return 1; }
-int bramble_symbols_load(const char *path) { return symbols_load(path); }
-int bramble_watch_add(uint32_t addr, uint32_t len) { return watch_add(addr, len); }
-int bramble_fault_add(const char *spec) { return fault_add(spec); }
-int bramble_script_load(const uint8_t *data, int len) {
+int picoemu_coverage_start(void) { coverage_init(); coverage_enabled = 1; return 1; }
+int picoemu_coverage_dump(void) { coverage_dump("/coverage.bin"); coverage_report(); return 1; }
+int picoemu_trace_start(void) { trace_init("/trace.bin"); return 1; }
+void picoemu_trace_stop(void) { trace_cleanup(); }
+int picoemu_hotspots_start(int n) { hotspots_init(); hotspots_enabled = 1; hotspots_top_n = n > 0 ? n : 20; return 1; }
+int picoemu_hotspots_report(void) { hotspots_report(); return 1; }
+int picoemu_profile_start(void) { profile_init(); profile_enabled = 1; return 1; }
+int picoemu_profile_dump(void) { profile_dump("/profile.csv"); profile_report(); return 1; }
+int picoemu_callgraph_start(void) { callgraph_init(); callgraph_enabled = 1; return 1; }
+int picoemu_callgraph_dump(void) { callgraph_dump("/callgraph.dot"); return 1; }
+int picoemu_gpiotrace_start(void) { gpio_trace_init("/gpio.vcd"); return 1; }
+void picoemu_gpiotrace_stop(void) { gpio_trace_cleanup(); }
+int picoemu_irqlat_start(void) { irq_latency_enabled = 1; return 1; }
+int picoemu_irqlat_report(void) { irq_latency_report(); return 1; }
+int picoemu_stackcheck_start(void) { stack_check_enabled = 1; return 1; }
+int picoemu_stackcheck_report(void) { stack_check_report(); return 1; }
+int picoemu_symbols_load(const char *path) { return symbols_load(path); }
+int picoemu_watch_add(uint32_t addr, uint32_t len) { return watch_add(addr, len); }
+int picoemu_fault_add(const char *spec) { return fault_add(spec); }
+int picoemu_script_load(const uint8_t *data, int len) {
     if (!data || len <= 0) return -1;
     FILE *f = fopen("/script.txt", "wb");
     if (!f) return -1;
@@ -881,11 +881,11 @@ int bramble_script_load(const uint8_t *data, int len) {
     fclose(f);
     return script_init("/script.txt");
 }
-int bramble_expect_start(const char *path) { expect_init(path); return 1; }
-int bramble_expect_check(void) { return expect_check(); }
-int bramble_heatmap_start(void) { mem_heatmap_init(); mem_heatmap_enabled = 1; return 1; }
-int bramble_heatmap_dump(void) { mem_heatmap_dump("/heatmap.csv"); return 1; }
-void bramble_set_buslog(int uart, int spi, int i2c) {
+int picoemu_expect_start(const char *path) { expect_init(path); return 1; }
+int picoemu_expect_check(void) { return expect_check(); }
+int picoemu_heatmap_start(void) { mem_heatmap_init(); mem_heatmap_enabled = 1; return 1; }
+int picoemu_heatmap_dump(void) { mem_heatmap_dump("/heatmap.csv"); return 1; }
+void picoemu_set_buslog(int uart, int spi, int i2c) {
     log_uart_enabled = uart ? 1 : 0;
     log_spi_enabled = spi ? 1 : 0;
     log_i2c_enabled = i2c ? 1 : 0;

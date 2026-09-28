@@ -1,4 +1,4 @@
-# Historical NVIC Audit - Bramble RP2040 Emulator
+# Historical NVIC Audit - Pico-emu RP2040 Emulator
 
 **Date:** December 6, 2025
 **Re-verified:** September 8, 2026 (codebase past v0.50.0, 385/385 tests)

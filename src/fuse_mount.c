@@ -54,7 +54,7 @@ static void fuse_persist_sync(void) {
  * FUSE operations
  * ======================================================================== */
 
-static int bramble_getattr(const char *path, struct stat *stbuf,
+static int picoemu_getattr(const char *path, struct stat *stbuf,
                            struct fuse_file_info *fi) {
     (void)fi;
     memset(stbuf, 0, sizeof(struct stat));
@@ -87,7 +87,7 @@ static int bramble_getattr(const char *path, struct stat *stbuf,
     return 0;
 }
 
-static int bramble_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+static int picoemu_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                            off_t offset, struct fuse_file_info *fi,
                            enum fuse_readdir_flags flags) {
     (void)offset;
@@ -112,7 +112,7 @@ static int bramble_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     return 0;
 }
 
-static int bramble_open(const char *path, struct fuse_file_info *fi) {
+static int picoemu_open(const char *path, struct fuse_file_info *fi) {
     const char *name = path + 1;
     fat16_fileinfo_t info;
 
@@ -124,7 +124,7 @@ static int bramble_open(const char *path, struct fuse_file_info *fi) {
     return rc < 0 ? -ENOENT : 0;
 }
 
-static int bramble_read(const char *path, char *buf, size_t size, off_t offset,
+static int picoemu_read(const char *path, char *buf, size_t size, off_t offset,
                         struct fuse_file_info *fi) {
     (void)fi;
     const char *name = path + 1;
@@ -165,7 +165,7 @@ static int bramble_read(const char *path, char *buf, size_t size, off_t offset,
     return (int)size;
 }
 
-static int bramble_write(const char *path, const char *buf, size_t size,
+static int picoemu_write(const char *path, const char *buf, size_t size,
                          off_t offset, struct fuse_file_info *fi) {
     (void)fi;
     const char *name = path + 1;
@@ -208,7 +208,7 @@ static int bramble_write(const char *path, const char *buf, size_t size,
     return rc < 0 ? -EIO : (int)size;
 }
 
-static int bramble_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
+static int picoemu_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
     (void)mode;
     (void)fi;
     const char *name = path + 1;
@@ -224,7 +224,7 @@ static int bramble_create(const char *path, mode_t mode, struct fuse_file_info *
     return rc < 0 ? -ENOSPC : 0;
 }
 
-static int bramble_unlink(const char *path) {
+static int picoemu_unlink(const char *path) {
     const char *name = path + 1;
 
     pthread_mutex_lock(&fuse_flash_mutex);
@@ -237,7 +237,7 @@ static int bramble_unlink(const char *path) {
     return rc < 0 ? -ENOENT : 0;
 }
 
-static int bramble_truncate(const char *path, off_t size,
+static int picoemu_truncate(const char *path, off_t size,
                             struct fuse_file_info *fi) {
     (void)fi;
     const char *name = path + 1;
@@ -281,15 +281,15 @@ static int bramble_truncate(const char *path, off_t size,
     return rc < 0 ? -EIO : 0;
 }
 
-static const struct fuse_operations bramble_ops = {
-    .getattr  = bramble_getattr,
-    .readdir  = bramble_readdir,
-    .open     = bramble_open,
-    .read     = bramble_read,
-    .write    = bramble_write,
-    .create   = bramble_create,
-    .unlink   = bramble_unlink,
-    .truncate = bramble_truncate,
+static const struct fuse_operations picoemu_ops = {
+    .getattr  = picoemu_getattr,
+    .readdir  = picoemu_readdir,
+    .open     = picoemu_open,
+    .read     = picoemu_read,
+    .write    = picoemu_write,
+    .create   = picoemu_create,
+    .unlink   = picoemu_unlink,
+    .truncate = picoemu_truncate,
 };
 
 /* ========================================================================
@@ -326,10 +326,10 @@ int fuse_mount_start(uint8_t *flash_data, size_t flash_size, const char *mount_p
     mkdir(mount_point, 0755);
 
     /* Set up FUSE args — minimal: just the program name */
-    const char *fuse_argv[] = { "bramble" };
+    const char *fuse_argv[] = { "picoemu" };
     struct fuse_args args = FUSE_ARGS_INIT(1, (char **)fuse_argv);
 
-    fuse_instance = fuse_new(&args, &bramble_ops, sizeof(bramble_ops), NULL);
+    fuse_instance = fuse_new(&args, &picoemu_ops, sizeof(picoemu_ops), NULL);
     if (!fuse_instance) {
         fprintf(stderr, "[FUSE] Failed to create FUSE instance\n");
         fuse_opt_free_args(&args);

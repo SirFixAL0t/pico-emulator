@@ -390,13 +390,13 @@ void dual_core_step(void);
  * (cooperative mode only). Lets the owner service sockets/TAP during
  * long guest sleeps, when the main loop's step-count polls starve.
  * NULL = disabled (e.g. threaded mode polls from its main thread). */
-extern void (*bramble_ff_poll_hook)(void);
+extern void (*picoemu_ff_poll_hook)(void);
 
 /* ND address-resolution wait window (wall ms, monotonic; 0 = inactive).
  * Armed by cyw43.c when guest transmits an ICMPv6 Neighbor Solicitation;
  * while now is below it, dual_core_step freezes WFE fast-forward (host
  * polls still run) so guest ND timers can't outrun host-speed answers. */
-extern uint64_t bramble_nd_wait_until_ms;
+extern uint64_t picoemu_nd_wait_until_ms;
 
 /* Exception handling */
 void cpu_exception_entry_dual(int core_id, uint32_t vector_num);

@@ -29,9 +29,9 @@
 
 /* WASM proxy queue: CONNECT/LISTEN/CLOSE/SEND control + data bytes are
  * queued here by the socket-command path and drained by JS through
- * bramble_w5500_pop_tx() (pumped each frame in web/index.html and in
- * web/cli.js). Same pop/push pairing as the ETH (bramble_eth_pop_tx)
- * and BLE-HCI (bramble_bt_hci_pop_tx) uplinks. Node-safe: no EM_ASM,
+ * picoemu_w5500_pop_tx() (pumped each frame in web/index.html and in
+ * web/cli.js). Same pop/push pairing as the ETH (picoemu_eth_pop_tx)
+ * and BLE-HCI (picoemu_bt_hci_pop_tx) uplinks. Node-safe: no EM_ASM,
  * no window access — works in browsers AND Node (cli.js). */
 #define W5500_WS_TX_SIZE 8192
 static uint8_t w5500_ws_tx_buf[W5500_WS_TX_SIZE];
@@ -50,7 +50,7 @@ void w5500_ws_tx_push(const uint8_t *data, int len) {
 /* Drain queued proxy bytes into out[] (up to maxlen). Returns bytes
  * drained, 0 when empty. framing: caller passes the raw queue through
  * to the proxy socket (messages are self-delimiting). */
-int bramble_w5500_pop_tx(uint8_t *out, int maxlen) {
+int picoemu_w5500_pop_tx(uint8_t *out, int maxlen) {
     int n = 0;
     while (n < maxlen && w5500_ws_tx_tail != w5500_ws_tx_head) {
         out[n++] = w5500_ws_tx_buf[w5500_ws_tx_tail];
@@ -59,7 +59,7 @@ int bramble_w5500_pop_tx(uint8_t *out, int maxlen) {
     return n;
 }
 
-int bramble_w5500_tx_len(void) {
+int picoemu_w5500_tx_len(void) {
     int n = w5500_ws_tx_head - w5500_ws_tx_tail;
     if (n < 0) n += W5500_WS_TX_SIZE;
     return n;
@@ -207,7 +207,7 @@ static int w5500_macraw_ndevs = 0;
 
 /* Single-gateway switch (default ON): socket-0 MACRAW joins the shared
  * vnet bus. Turn off only to isolate Ethernet from WiFi/gateway traffic
- * (debug). WASM mirrors through bramble_w5500_gw_enable(). */
+ * (debug). WASM mirrors through picoemu_w5500_gw_enable(). */
 static int w5500_gw_enable = 1;
 void w5500_gw_enable_set(int on) { w5500_gw_enable = on ? 1 : 0; }
 int w5500_gw_enabled(void) { return w5500_gw_enable; }
@@ -258,7 +258,7 @@ int w5500_macraw_attach(w5500_t *dev, int sock) {
     int port = vnet_register_port("w5500-macraw", VNET_PORT_W5500, mac,
                                   w5500_macraw_vnet_rx, (void *)(intptr_t)idx);
     dev->vnet_port = port;
-    /* WASM note: bramble_wasm.c provides w5500_macraw_vnet_mark() to set
+    /* WASM note: picoemu_wasm.c provides w5500_macraw_vnet_mark() to set
      * wasm_vnet_on when the MACRAW path brings vnet up itself. Weak ref
      * keeps native/test/WASM all linking (native has no such symbol). */
     extern void w5500_macraw_vnet_mark(void) __attribute__((weak));
@@ -516,7 +516,7 @@ static void w5500_process_socket_cmd(w5500_t *dev, int sock) {
         /* WASM live via WebSocket proxy pump: queue SEND even when host_fd<0.
          * The JS pump (index.html frame loop / cli.js tick) forwards queued
          * bytes to the proxy; the proxy performs real TCP/UDP and returns
-         * data via bramble_w5500_dev_push_rx().
+         * data via picoemu_w5500_dev_push_rx().
          * Format: [0x57,sock:1][len:2 LE][payload]. */
         if (dev->live && data_len > 0) {
             int widx = (int)(s - dev->sockets);
@@ -1332,7 +1332,7 @@ void w5500_board_set_live(int live) {
 #ifdef __EMSCRIPTEN__
 /* Push proxy-received bytes into socket RX buffer (called from JS via export).
  * Sets RECV interrupt like native recv path. */
-int bramble_w5500_dev_push_rx(w5500_t *dev, int sock, const uint8_t *data, int len) {
+int picoemu_w5500_dev_push_rx(w5500_t *dev, int sock, const uint8_t *data, int len) {
     if (!dev || sock < 0 || sock >= W5500_NUM_SOCKETS || !data || len <= 0) return -1;
     w5500_socket_t *s = &dev->sockets[sock];
     uint16_t rx_rsr = ((uint16_t)s->regs[W5500_Sn_RX_RSR0] << 8) |
@@ -1353,8 +1353,8 @@ int bramble_w5500_dev_push_rx(w5500_t *dev, int sock, const uint8_t *data, int l
     s->regs[W5500_Sn_IR] |= 0x04;
     return len;
 }
-/* Default device for JS-friendly export (wraps wasm_w5500 in bramble_wasm.c) */
-int bramble_w5500_dev_push_status(w5500_t *dev, int sock, int code) {
+/* Default device for JS-friendly export (wraps wasm_w5500 in picoemu_wasm.c) */
+int picoemu_w5500_dev_push_status(w5500_t *dev, int sock, int code) {
     if (!dev || sock < 0 || sock >= W5500_NUM_SOCKETS) return -1;
     w5500_socket_t *s = &dev->sockets[sock];
     if (code) {

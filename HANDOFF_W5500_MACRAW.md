@@ -1,11 +1,11 @@
-# HANDOFF — Bramble W5500 MACRAW length-prefix failure + sweep flakes
+# HANDOFF — Pico-emu W5500 MACRAW length-prefix failure + sweep flakes
 
 Date (UTC): 2026-09-19
-Repo: /home/danish1075/Documents/rp2350/Bramble
+Repo: /home/danish1075/Documents/rp2350/Pico-emu
 Branch: main
 HEAD: 83cfe07 "all 9 support rows done: B-package ADC/PWM/DMA, HSTX/TRNG/SHA-256, SAU/MPU, DSP/MVE, Zfinx, ARM BLE LISTEN (425/426, sweep 61/62)"
-Workdir: /home/danish1075/Documents/rp2350/Bramble
-Build: build/bramble_tests -> 425/426 passed, 1 failed
+Workdir: /home/danish1075/Documents/rp2350/Pico-emu
+Build: build/picoemu_tests -> 425/426 passed, 1 failed
 Sweep (claimed): 61/62 (wifi_join_rv32 pre-existing flake)
 Status: clean git (no stashes, no unstaged changes at handoff time)
 Author of handoff: opencode session (Muse Spark)
@@ -16,9 +16,9 @@ Author of handoff: opencode session (Muse Spark)
 
 1. User asked "What did we do so far?" then "continuee" / "continue".
 2. Assistant surveyed repo root (/home/danish1075/Documents/rp2350),
-3. then Bramble/ directory listing, git log, CHANGELOG.md, ROADMAP.md,
+3. then Pico-emu/ directory listing, git log, CHANGELOG.md, ROADMAP.md,
 4. agent.md, front.md, .claude/, docs/NETWORKING.md, docs/audit_report.md,
-5. live test results (build/bramble_tests), schedules/sessions.
+5. live test results (build/picoemu_tests), schedules/sessions.
 6. User then said "see teh todo list and start working".
 7. No TODO file exists in repo; assistant derived todo list from
 8. docs/NETWORKING.md "What is NOT done", agent.md sections 8.1-8.5,
@@ -70,7 +70,7 @@ Author of handoff: opencode session (Muse Spark)
 49. Arduino prove-out: test-firmware/arduino/ethdhcp/ethdhcp.ino,
 50. test-firmware/arduino/README.md, FQBN wiznet_5500_evb_pico (M0+) green,
 51. wiznet_5500_evb_pico2 (M33) pending.
-52. WASM: web/bramble.wasm.{js,wasm,threads.js,threads.wasm} rebuilt at HEAD.
+52. WASM: web/picoemu.wasm.{js,wasm,threads.js,threads.wasm} rebuilt at HEAD.
 53. test-wasm.js PASS, test-wasm-ble.js PASS, test-wasm-gateway.js hangs
 54. identically on clean HEAD (pre-existing, unrelated).
 55. Docs counts at HEAD: 425/426, sweep 61/62.
@@ -110,7 +110,7 @@ Author of handoff: opencode session (Muse Spark)
 84.   - Boots under -arch m33 -wifi but scan returns n=0.
 85.   - Only ONE IOCTL cmd=263 observed before guest blocks.
 86.   - Suspect: ioctl response routing (CDC flags/id) or async-event delivery.
-87.   - RV32 wifi_join works; compare paths. Use BRAMBLE_CYW43_TRACE=1.
+87.   - RV32 wifi_join works; compare paths. Use PICOEMU_CYW43_TRACE=1.
 88.   - Sweep currently covers WiFi on RV32 only (sweep_all.sh:93-98).
 89.
 90. [PENDING] (low) MP live gap_advertise proof (BT-capable build)
@@ -133,7 +133,7 @@ Author of handoff: opencode session (Muse Spark)
 102. Test function: test_w5500_macraw_gateway_dhcp_path
 103. File: tests/test_suite.c, lines 6362-6468 (HEAD).
 104. Category: W5500 Live Networking (shows as 12/13 passed on failure).
-105. Full suite: ./build/bramble_tests -> Results: 425/426 passed, 1 failed.
+105. Full suite: ./build/picoemu_tests -> Results: 425/426 passed, 1 failed.
 106. Failure log excerpt (stderr+stdout interleaved):
 107. [W5500] MACRAW socket 0 on vnet port 0
 108. [VNet] Port 1 registered: macraw-observer (MAC=02:BB:00:00:00:77)
@@ -141,9 +141,9 @@ Author of handoff: opencode session (Muse Spark)
 110.     length prefix lo should be 42: expected 0x0000002A, got 0x00000002
 111.   -- W5500 Live Networking: 12/13 passed
 112. Reproduce:
-113.   cmake --build build --target bramble_tests -j8
-114.   ./build/bramble_tests 2>&1 | tail -30
-115.   ./build/bramble_tests 2>&1 | grep -B2 -A5 "FAIL"
+113.   cmake --build build --target picoemu_tests -j8
+114.   ./build/picoemu_tests 2>&1 | tail -30
+115.   ./build/picoemu_tests 2>&1 | grep -B2 -A5 "FAIL"
 116. No filter arg supported: main(void) takes no argv (tests/test_suite.c:7656).
 117. RUN_TEST list at lines 8216-8228; macraw test is line 8228.
 118. Test source identical at f2a57eb and HEAD (verified via git show).
@@ -172,7 +172,7 @@ Author of handoff: opencode session (Muse Spark)
 141. Key: failure is AFTER RSR/RECV prove the RX path appended correctly.
 142. So bug is in READ path (w5500_read_byte MACRAW branch + cursor latch),
 143. not in append path (w5500_macraw_vnet_rx).
-144. Test binary built Sep 18 17:05 (build/bramble_tests 2305592 bytes).
+144. Test binary built Sep 18 17:05 (build/picoemu_tests 2305592 bytes).
 145. Test count: grep -c RUN_TEST = 426.
 
 ---
@@ -480,12 +480,12 @@ Author of handoff: opencode session (Muse Spark)
 423. tiny harness linking src/w5500.c+src/vnet.c with stub gpio/vnet deps.
 424. Next agent: do this FIRST (15 min) before editing src.
 425. Peer E2E commands (need two terminals or background):
-426.   ./build/bramble web/eth_dhcp.uf2 -board pico-eth -net-peer /tmp/m0.sock -clock 125 -timeout 90 -max-steps 2000000000 &
+426.   ./build/picoemu web/eth_dhcp.uf2 -board pico-eth -net-peer /tmp/m0.sock -clock 125 -timeout 90 -max-steps 2000000000 &
 427.   python3 test-firmware/dhcp_peer_test.py /tmp/m0.sock  # expect ALL DHCP CHECKS PASSED
 428.   M33: web/eth_dhcp_pico2.uf2 -board pico-eth2 ; RV32: web/eth_dhcp_rv32.uf2 -arch rv32 -board pico-eth
 429.   HTTP: web/eth_http.uf2 + python3 test-firmware/http_peer_test.py /tmp/m0.sock
 430. Sweep dead-peer (no peer needed):
-431.   ./build/bramble web/eth_dhcp.uf2 -board pico-eth -net-peer /tmp/dead.sock -clock 125 -timeout 50 -max-steps 3000000  # expect ETH DHCP-START + ETH MACRAW-OK
+431.   ./build/picoemu web/eth_dhcp.uf2 -board pico-eth -net-peer /tmp/dead.sock -clock 125 -timeout 50 -max-steps 3000000  # expect ETH DHCP-START + ETH MACRAW-OK
 432. WASM (after src fix + rebuild): ./build_wasm.sh && ./build_wasm_threads.sh, node test-wasm.js, node test-wasm-ble.js.
 
 ---
@@ -514,12 +514,12 @@ Author of handoff: opencode session (Muse Spark)
 
 ## 11. What was actually tried in THIS session (transcript index)
 
-450. - Listed /home/danish1075/Documents/rp2350 (Bramble/ + emsdk/).
-451. - Listed Bramble/ (65 entries), git log -20, CHANGELOG head, build/ + tests tail.
+450. - Listed /home/danish1075/Documents/rp2350 (Pico-emu/ + emsdk/).
+451. - Listed Pico-emu/ (65 entries), git log -20, CHANGELOG head, build/ + tests tail.
 452. - Read docs/ROADMAP.md (624 lines), agent.md (402 lines), front.md, .claude/.
 453. - Grepped TODO|FIXME|flake across *.md (74 matches).
 454. - Read docs/NETWORKING.md (156 lines), docs/audit_report.md head.
-455. - Ran ./build/bramble_tests, isolated FAIL to w5500 macraw length-prefix.
+455. - Ran ./build/picoemu_tests, isolated FAIL to w5500 macraw length-prefix.
 456. - Checked schedule.list (0 tasks), session.list (interrupted).
 457. - Created TodoWrite (5 items, item 1 in_progress).
 458. - Read test_suite.c:6340-6509 (macraw test), include/w5500.h, src/w5500.c full.
@@ -538,15 +538,15 @@ Author of handoff: opencode session (Muse Spark)
 471. - Discussed claude-handoff skill; `claude` binary missing; user said opencode.
 472. - User requested this 500-line handoff file with todo list.
 473. No src edits made. No commits made. No WASM rebuild. No sweep re-run yet.
-474. Build dir timestamp: build/bramble_tests Sep 18 17:05 (may be stale vs HEAD?
+474. Build dir timestamp: build/picoemu_tests Sep 18 17:05 (may be stale vs HEAD?
 475. HEAD commit Sep 18 ~17:0x; verify with clean rebuild).
 
 ---
 
 ## 12. Next-agent action plan (do in order)
 
-476. 1. Clean rebuild + confirm: cmake --build build --target bramble_tests -j8
-477.    (or ./build.sh), then ./build/bramble_tests 2>&1 | grep -A3 FAIL.
+476. 1. Clean rebuild + confirm: cmake --build build --target picoemu_tests -j8
+477.    (or ./build.sh), then ./build/picoemu_tests 2>&1 | grep -A3 FAIL.
 478. 2. Isolate: temporarily comment out all RUN_TEST except
 479.    test_w5500_macraw_gateway_dhcp_path (or copy test body into /tmp harness
 480.    linking src/w5500.c src/vnet.c + stubs) to check order-dependence.
@@ -559,7 +559,7 @@ Author of handoff: opencode session (Muse Spark)
 487.    - Ensure RX_RD guest writes are advisory (do not corrupt base); optionally
 488.      sync cursor anchor from RX_RD on CS assert for Arduino compat, but do NOT
 489.      double-count addr deltas.
-490. 5. Verify: full ./build/bramble_tests -> 426/426. Then E2E peers x3 (DHCP+HTTP),
+490. 5. Verify: full ./build/picoemu_tests -> 426/426. Then E2E peers x3 (DHCP+HTTP),
 491.    Arduino ethdhcp M0+ live, sweep_all.sh build (expect 62/62 or 61/62 with
 492.    known wifi flake), test-wasm.js + test-wasm-ble.js after WASM rebuild.
 493. 6. Then proceed to todo items 2-5 (Section 3) in priority order.
@@ -574,25 +574,25 @@ Author of handoff: opencode session (Muse Spark)
 
 ## 13. Key paths (absolute, for quick open)
 
-499. - /home/danish1075/Documents/rp2350/Bramble/tests/test_suite.c:6365 (test)
-500. - /home/danish1075/Documents/rp2350/Bramble/src/w5500.c:157 (append), :225 (attach), :258 (send), :499 (RECV), :562 (read), :747 (SPI), :822 (CS)
-501. - /home/danish1075/Documents/rp2350/Bramble/include/w5500.h:119 (socket struct)
-502. - /home/danish1075/Documents/rp2350/Bramble/src/vnet.c:62 (init), :157 (register), :285 (tx)
-503. - /home/danish1075/Documents/rp2350/Bramble/test-firmware/gen_eth_dhcp.py:609 (wait_offer), :330 (macraw_send)
-504. - /home/danish1075/Documents/rp2350/Bramble/test-firmware/dhcp_peer_test.py (peer)
-505. - /home/danish1075/Documents/rp2350/Bramble/test-firmware/http_peer_test.py (peer)
-506. - /home/danish1075/Documents/rp2350/Bramble/test-firmware/sweep_all.sh (sweep)
-507. - /home/danish1075/Documents/rp2350/Bramble/test-firmware/arduino/ethdhcp/ethdhcp.ino
-508. - /home/danish1075/Documents/rp2350/Bramble/test-firmware/arduino/m33wifi/m33wifi.ino
-509. - /home/danish1075/Documents/rp2350/Bramble/test-firmware/arduino/README.md
-510. - /home/danish1075/Documents/rp2350/Bramble/docs/NETWORKING.md:56 (matrix), :78 (ioLibrary), :80 (WiFi sweep)
-511. - /home/danish1075/Documents/rp2350/Bramble/agent.md:8.1-8.5 (gaps), :7b-7c (commit checklist)
-512. - /home/danish1075/Documents/rp2350/Bramble/CHANGELOG.md:1 (Unreleased), :79 (tests)
-513. - /home/danish1075/Documents/rp2350/Bramble/docs/ROADMAP.md:5 (current state)
+499. - /home/danish1075/Documents/rp2350/Pico-emu/tests/test_suite.c:6365 (test)
+500. - /home/danish1075/Documents/rp2350/Pico-emu/src/w5500.c:157 (append), :225 (attach), :258 (send), :499 (RECV), :562 (read), :747 (SPI), :822 (CS)
+501. - /home/danish1075/Documents/rp2350/Pico-emu/include/w5500.h:119 (socket struct)
+502. - /home/danish1075/Documents/rp2350/Pico-emu/src/vnet.c:62 (init), :157 (register), :285 (tx)
+503. - /home/danish1075/Documents/rp2350/Pico-emu/test-firmware/gen_eth_dhcp.py:609 (wait_offer), :330 (macraw_send)
+504. - /home/danish1075/Documents/rp2350/Pico-emu/test-firmware/dhcp_peer_test.py (peer)
+505. - /home/danish1075/Documents/rp2350/Pico-emu/test-firmware/http_peer_test.py (peer)
+506. - /home/danish1075/Documents/rp2350/Pico-emu/test-firmware/sweep_all.sh (sweep)
+507. - /home/danish1075/Documents/rp2350/Pico-emu/test-firmware/arduino/ethdhcp/ethdhcp.ino
+508. - /home/danish1075/Documents/rp2350/Pico-emu/test-firmware/arduino/m33wifi/m33wifi.ino
+509. - /home/danish1075/Documents/rp2350/Pico-emu/test-firmware/arduino/README.md
+510. - /home/danish1075/Documents/rp2350/Pico-emu/docs/NETWORKING.md:56 (matrix), :78 (ioLibrary), :80 (WiFi sweep)
+511. - /home/danish1075/Documents/rp2350/Pico-emu/agent.md:8.1-8.5 (gaps), :7b-7c (commit checklist)
+512. - /home/danish1075/Documents/rp2350/Pico-emu/CHANGELOG.md:1 (Unreleased), :79 (tests)
+513. - /home/danish1075/Documents/rp2350/Pico-emu/docs/ROADMAP.md:5 (current state)
 514. - /home/danish1075/.arduino15/packages/rp2040/hardware/rp2040/6.0.0/libraries/lwIP_w5500/src/utility/w5500.cpp:305 (readFrameSize)
 515. - /home/danish1075/.arduino15/packages/rp2040/hardware/rp2040/6.0.0/libraries/lwIP_Ethernet/src/LwipIntfDev.h:613 (handlePackets)
-516. - /home/danish1075/Documents/rp2350/Bramble/web/bramble.wasm.wasm (rebuild after fix)
-517. - /home/danish1075/Documents/rp2350/Bramble/build/bramble_tests (test binary)
+516. - /home/danish1075/Documents/rp2350/Pico-emu/web/picoemu.wasm.wasm (rebuild after fix)
+517. - /home/danish1075/Documents/rp2350/Pico-emu/build/picoemu_tests (test binary)
 
 ---
 
@@ -622,7 +622,7 @@ Author of handoff: opencode session (Muse Spark)
 534.   them (per skill rule). Read the referenced files; do not re-paste them here.
 535. - Suggested background name (if launching): "Fix w5500 macraw read".
 536. - Seed prompt for background agent: this file's Sections 3+7+12 (todo + root
-537.   cause + plan). Point it at repo root /home/danish1075/Documents/rp2350/Bramble.
+537.   cause + plan). Point it at repo root /home/danish1075/Documents/rp2350/Pico-emu.
 538. - Return signal: 426/426 + E2E peers green + sweep 62/62 (or 61/62 + wifi flake note).
 539. - End of handoff. Next agent: start at Section 12 step 1. Good luck.
 540. (padding to reach 500-line target: lines 540+ are intentionally blank-safe.)

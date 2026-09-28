@@ -1,4 +1,4 @@
-/* Bramble RP2040 Emulator - Unified Main (Single & Dual-Core)
+/* Pico-emu RP2040 Emulator - Unified Main (Single & Dual-Core)
  *
  * This main.c handles both single-core and dual-core emulation modes.
  * Detects hardware based on emulator.h definitions.
@@ -429,7 +429,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "  -mac AA:BB:CC:DD:EE:FF      Override CYW43 MAC (implies -wifi)\n");
         fprintf(stderr, "\nVirtual Network:\n");
         fprintf(stderr, "  -net                        Create TAP + NAT for internet bridge (auto-sudo)\n");
-        fprintf(stderr, "  -net-peer <path>            Mesh with another Bramble instance via Unix socket\n");
+        fprintf(stderr, "  -net-peer <path>            Mesh with another Pico-emu instance via Unix socket\n");
         fprintf(stderr, "  -net-live                   Enable W5500 live host sockets\n");
         fprintf(stderr, "  -bt-hci <path>              Forward guest HCI to host controller (Bumble/BlueZ) via Unix socket\n");
         fprintf(stderr, "\nBoards (separate SPI hardware, off = zero cost):\n");
@@ -685,7 +685,7 @@ int main(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "-net") == 0) {
             vnet_enabled = 1;
-            if (!tap_name) tap_name = "bramble0";
+            if (!tap_name) tap_name = "picoemu0";
         } else if (strcmp(argv[i], "-net-peer") == 0) {
             if (i + 1 < argc) {
                 vnet_enabled = 1;
@@ -825,7 +825,7 @@ int main(int argc, char **argv) {
      *   -mount <dir>    FUSE filesystem mount (CAP_SYS_ADMIN)
      *
      * If a privileged flag is used and we're not root, prompt the user
-     * and re-exec via sudo. The BRAMBLE_ESCALATED env var prevents
+     * and re-exec via sudo. The PICOEMU_ESCALATED env var prevents
      * infinite re-exec loops.
      * ======================================================================== */
 
@@ -836,7 +836,7 @@ int main(int argc, char **argv) {
         int needs_privilege = tap_explicit ||
                               (mount_path != NULL) ||
                               (vnet_enabled && tap_name && !cyw43.enabled);
-        if (needs_privilege && geteuid() != 0 && getenv("BRAMBLE_ESCALATED") == NULL) {
+        if (needs_privilege && geteuid() != 0 && getenv("PICOEMU_ESCALATED") == NULL) {
             /* Explain why we need elevated privileges */
             fprintf(stderr, "\n[Privilege] The following features require superuser access:\n");
             if (tap_name)
@@ -846,7 +846,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[Privilege] Re-launching with sudo...\n\n");
 
             /* Build argv for sudo re-exec:
-             * sudo -E BRAMBLE_ESCALATED=1 /path/to/bramble [original args...] */
+             * sudo -E PICOEMU_ESCALATED=1 /path/to/picoemu [original args...] */
             char **sudo_argv = calloc((size_t)argc + 4, sizeof(char *));
             if (!sudo_argv) {
                 fprintf(stderr, "[Error] Failed to allocate memory for sudo re-exec\n");
@@ -867,7 +867,7 @@ int main(int argc, char **argv) {
             int si = 0;
             sudo_argv[si++] = "sudo";
             sudo_argv[si++] = "-E";                  /* Preserve environment */
-            sudo_argv[si++] = "BRAMBLE_ESCALATED=1"; /* Prevent re-exec loop */
+            sudo_argv[si++] = "PICOEMU_ESCALATED=1"; /* Prevent re-exec loop */
             sudo_argv[si++] = exe_path;
             for (int i = 1; i < argc; i++) {
                 sudo_argv[si++] = argv[i];
@@ -946,11 +946,11 @@ int main(int argc, char **argv) {
     /* Display banner (after arch auto-detection) */
     fprintf(stderr,"\n╔════════════════════════════════════════════════════════════╗\n");
     if (arch == ARCH_RV32) {
-        fprintf(stderr,"║    Bramble RP2350 Emulator - Hazard3 RV32IMAC              ║\n");
+        fprintf(stderr,"║    Pico-emu RP2350 Emulator - Hazard3 RV32IMAC              ║\n");
     } else if (arch == ARCH_M33) {
-        fprintf(stderr,"║    Bramble RP2350 Emulator - Cortex-M33 (ARMv8-M)          ║\n");
+        fprintf(stderr,"║    Pico-emu RP2350 Emulator - Cortex-M33 (ARMv8-M)          ║\n");
     } else {
-        fprintf(stderr,"║    Bramble RP2040 Emulator - %s Mode%s          ║\n",
+        fprintf(stderr,"║    Pico-emu RP2040 Emulator - %s Mode%s          ║\n",
                 num_active_cores == 1 ? "Single-Core" : "Dual-Core",
                 threaded_mode ? " (threaded)" : "          ");
     }
@@ -1546,7 +1546,7 @@ skip_fuse:
         ff_vnet_enabled = vnet_enabled;
         ff_w5500_live = w5500_live;
         ff_w5500_dev = &w5500_dev;
-        bramble_ff_poll_hook = ff_host_poll;
+        picoemu_ff_poll_hook = ff_host_poll;
         while (any_core_running()) {
 
             /* GDB: check for breakpoint/watchpoint on both cores */
@@ -1653,7 +1653,7 @@ skip_fuse:
                 break;
             }
         }
-        bramble_ff_poll_hook = NULL;
+        picoemu_ff_poll_hook = NULL;
     }
 
     /* ========================================================================

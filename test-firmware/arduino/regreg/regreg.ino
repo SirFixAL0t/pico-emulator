@@ -6,7 +6,7 @@ void setup() {
   delay(2000);
   Serial.println("REG-START");
   WiFi.config(IPAddress(192, 168, 4, 200), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-  WiFi.begin("BrambleNet", "testpassword");
+  WiFi.begin("Pico-emuNet", "testpassword");
   delay(3000);
   Serial.print("INTE3="); Serial.println(rd32(0x40014114), HEX);
   Serial.print("INTS3="); Serial.println(rd32(0x40014144), HEX);

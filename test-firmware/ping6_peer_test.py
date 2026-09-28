@@ -3,7 +3,7 @@
 the guest (ULA fd00:4::64), with ICMPv6 checksum verification.
 
 Usage:
-  ./build/bramble web/wifi_ping6_rv32.uf2 -clock 125 -wifi \\
+  ./build/picoemu web/wifi_ping6_rv32.uf2 -clock 125 -wifi \\
       -net -net-peer /tmp/p6test.sock
   python3 test-firmware/ping6_peer_test.py /tmp/p6test.sock
 Exit 0 + ALL PING6 CHECKS PASSED on success.

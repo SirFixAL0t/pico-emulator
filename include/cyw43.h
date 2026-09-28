@@ -19,8 +19,8 @@
  *   enabling real internet access for emulated Pico W firmware.
  *
  * Usage:
- *   ./bramble firmware.uf2 -wifi              # Stub mode (no networking)
- *   ./bramble firmware.uf2 -wifi -tap tap0    # TAP bridge mode
+ *   ./picoemu firmware.uf2 -wifi              # Stub mode (no networking)
+ *   ./picoemu firmware.uf2 -wifi -tap tap0    # TAP bridge mode
  */
 
 #ifndef CYW43_H
@@ -385,7 +385,7 @@ void cyw43_bt_beacon_poll(void);
 /* Periodic unsolicited RA pump (same call sites; fake-net SLAAC). */
 void cyw43_ndp_ra_poll(void);
 /* HCI forwarding to a host controller over a unix socket (H4 frames).
- * -bt-hci <sock>: bramble listens, bridge connects. Empty = internal
+ * -bt-hci <sock>: picoemu listens, bridge connects. Empty = internal
  * responder (default). */
 void cyw43_bt_hci_attach(const char *path);
 void cyw43_bt_hci_bridge_poll(void);

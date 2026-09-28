@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""hci_bridge.py — forward guest HCI (H4) between bramble and a host
+"""hci_bridge.py — forward guest HCI (H4) between picoemu and a host
 Bluetooth controller over TCP (Bumble virtual controller or
 `bumble-hci-bridge` -> physical adapter).
 
-  ./build/bramble <fw.uf2> -wifi -bt-hci /tmp/bthci.sock [...]
+  ./build/picoemu <fw.uf2> -wifi -bt-hci /tmp/bthci.sock [...]
   python3 web/hci_bridge.py --sock /tmp/bthci.sock [--tcp 127.0.0.1:9544]
 
-Unix side: [u32 LE len][type+payload] (bramble listens, bridge connects).
+Unix side: [u32 LE len][type+payload] (picoemu listens, bridge connects).
 TCP side: raw H4 stream (1-byte type + header-parsed payload), matching
 Bumble's tcp-server/tcp-client transports and the gateway ble-gateway
 convention (Bumble on localhost:9544).

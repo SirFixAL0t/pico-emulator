@@ -7,7 +7,7 @@ void setup() {
   delay(2000);
   Serial.println("IRQ-START");
   WiFi.config(IPAddress(192, 168, 4, 200), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-  WiFi.begin("BrambleNet", "testpassword");
+  WiFi.begin("Pico-emuNet", "testpassword");
   delay(3000);
   attachInterrupt(24, onwake, RISING);
   Serial.println("IRQ-ARMED");

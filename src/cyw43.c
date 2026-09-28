@@ -28,11 +28,11 @@ static void cyw43_del_scan_result(const char *ssid);void cyw43_set_mac(const uin
     memcpy(cyw43.mac_addr, mac, 6);
 }
 
-/* Env-gated trace (BRAMBLE_CYW43_TRACE=1): CYW43-only logging at full speed,
+/* Env-gated trace (PICOEMU_CYW43_TRACE=1): CYW43-only logging at full speed,
  * without the crushing overhead of -debug (CPU step tracing). */
 static int cyw43_trace_en(void) {
     static int en = -1;
-    if (en < 0) en = getenv("BRAMBLE_CYW43_TRACE") ? 1 : 0;
+    if (en < 0) en = getenv("PICOEMU_CYW43_TRACE") ? 1 : 0;
     return en;
 }
 #define CYW43_DBG (cpu.debug_enabled || cyw43_trace_en())
@@ -689,7 +689,7 @@ static void cyw43_handle_ioctl(const uint8_t *buf, int len) {
         }
         if (vlen == strlen("ver") &&
             memcmp(varname, "ver", vlen) == 0) {
-            const char *ver = "wl0: Bramble CYW43 Emulator\n";
+            const char *ver = "wl0: Pico-emu CYW43 Emulator\n";
             cyw43_queue_ioctl_response(cmd, ioctl_id,
                                         (const uint8_t *)ver, (int)strlen(ver) + 1, 0);
             return;
@@ -1096,7 +1096,7 @@ static uint64_t ndp_ra_next_ms = 0;
  * whenever guest transmits an ICMPv6 Neighbor Solicitation; while active,
  * dual_core_step freezes WFE fast-forward so guest ND timers
  * (1s INCOMPLETE lifetime) can't outrun host-speed peer answers. */
-uint64_t bramble_nd_wait_until_ms = 0;
+uint64_t picoemu_nd_wait_until_ms = 0;
 /* Snoop guest WLAN TX for ICMPv6 Neighbor Solicitations. Address
  * resolution is a wall-time race in the emulator: the peer/bridge
  * answers in wall ms, but WFE fast-forward can advance emulated time
@@ -1104,7 +1104,7 @@ uint64_t bramble_nd_wait_until_ms = 0;
  * before the solicited NA is processed (NA then drops: "no longer
  * care", queued UDP never flushes). Arming a 4s wait window makes the
  * fast-forward path freeze (host polls still run) until the NA arrives. */
-static void bramble_nd_snoop_tx(const uint8_t *eth, int eth_len) {
+static void picoemu_nd_snoop_tx(const uint8_t *eth, int eth_len) {
     if (eth_len < 14 + 40 + 8) return;
     if (eth[12] != 0x86 || eth[13] != 0xDD) return;  /* IPv6 */
     const uint8_t *ip6 = eth + 14;
@@ -1112,7 +1112,7 @@ static void bramble_nd_snoop_tx(const uint8_t *eth, int eth_len) {
     if (ip6[40] != 135 || ip6[41] != 0) return;      /* NS, code 0 */
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    bramble_nd_wait_until_ms =
+    picoemu_nd_wait_until_ms =
         (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u + 4000;
 }
 void cyw43_ndp_ra_poll(void) {
@@ -1266,7 +1266,7 @@ static void cyw43_wlan_tx_complete(void) {
             int eth_len = len - eth_offset;
             if (eth_len > 0) {
                 const uint8_t *eth = cyw43.wlan_tx_buf + eth_offset;
-                bramble_nd_snoop_tx(eth, eth_len);
+                picoemu_nd_snoop_tx(eth, eth_len);
                 /* Fake DHCP/DNS+ICMP (+NDP) unless -nodhcp (gateway provides them). */
                 if (!cyw43_no_fake_dhcp &&
                     (cyw43_handle_dhcp(eth, eth_len) ||
@@ -1321,7 +1321,7 @@ void cyw43_init(void) {
     cyw43_reset();
 
     /* Add default fake APs for testing */
-    cyw43_add_scan_result("BrambleNet", -45, 6, 3);
+    cyw43_add_scan_result("Pico-emuNet", -45, 6, 3);
     cyw43_add_scan_result("PicoTestAP", -60, 1, 3);
     cyw43_add_scan_result("OpenNetwork", -70, 11, 0);
 }
@@ -1504,7 +1504,7 @@ static void cyw43_bus_write(uint32_t addr, uint32_t val) {
  * guest H2B packets go out as H4 ([type]+payload, u32-LE-length-framed)
  * over a unix socket to a host controller (Bumble virtual controller
  * or BlueZ adapter via a bridge), and socket input is queued into the
- * B2H ring. bramble listens; the bridge connects. Up to 8 outbound
+ * B2H ring. picoemu listens; the bridge connects. Up to 8 outbound
  * packets are stashed pre-connect and flushed on accept.
  * ======================================================================== */
 static char bt_hci_sock_path[256];
@@ -1845,7 +1845,7 @@ void cyw43_bt_beacon_poll(void) {
  *  - guest->controller ATT responses go out as HCI ACL, translated back
  *    onto the room bus.
  * ATT served from a tiny static DB (GAP 0x1800/device-name 0x2A00
- * "Bramble", GATT 0x1801/service-changed, plus RW scratch for handles
+ * "Pico-emu", GATT 0x1801/service-changed, plus RW scratch for handles
  * MP registers): MTU exchange, Read Req/Blob, Write Req/Cmd, Find Info,
  * Read-By-Type/Group. Enough for gatts_register_services + gatts_write +
  * gap_advertise E2E between two instances.
@@ -1949,7 +1949,7 @@ static int bt_gatt_prep_len;
 static void bt_gatt_db_reset(void) {
     /* Attribute layout (handles 0x0010-0x0014):
      *   0x0010  GAP primary service 0x2800 = 0x1800
-     *   0x0011  device-name char 0x2A00 "Bramble" (read 0x02)
+     *   0x0011  device-name char 0x2A00 "Pico-emu" (read 0x02)
      *   0x0012  scratch char 0x2A01 "??" (write 0x08 + read 0x02)
      *   0x0013  scratch CCCD 0x2902 = 00:00 (notify/indicate gate)
      *   0x0014  notify/indicate source char 0x2A01 (notify 0x10 +
@@ -1966,7 +1966,7 @@ static void bt_gatt_db_reset(void) {
     bt_gatt_attrs[1].handle = bt_gatt_next_handle++;
     bt_gatt_attrs[1].uuid = 0x2A00;
     bt_gatt_attrs[1].props = 0x02;
-    memcpy(bt_gatt_attrs[1].value, "Bramble", 7);
+    memcpy(bt_gatt_attrs[1].value, "Pico-emu", 7);
     bt_gatt_attrs[1].vlen = 7;
     bt_gatt_attrs[2].handle = bt_gatt_next_handle++;
     bt_gatt_attrs[2].uuid = 0x2A01;

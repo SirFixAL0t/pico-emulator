@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate RV32 bare-metal demos for Bramble Hazard3 (RP2350 RISC-V).
+"""Generate RV32 bare-metal demos for Pico-emu Hazard3 (RP2350 RISC-V).
 
 Position-independent rv32ima assembly (no compressed insns, auipc+addi
 string refs, hand-split immediates) so test-firmware/rvlink.py links it
@@ -183,7 +183,7 @@ def simple_reg_demo(name, title, start_msg, base, writes, done_msg):
 
 # --- hello ---
 d = Demo("hello_rv32", "Hello World")
-d.pstr("Hello from Bramble RV32!\n")
+d.pstr("Hello from Pico-emu RV32!\n")
 DEMOS.append(d)
 
 # --- gpio (SIO, LED pin 25) ---
@@ -2046,7 +2046,7 @@ DEMOS.append(d)
 # then loopback GATT against our own virtual link: LE_Create_Connection to
 # our own MAC (connect completes locally), ATT Exchange-MTU, Read device
 # name (0x0011), Write + Read-back scratch (0x0012). Markers GATT-CONN,
-# GATT-MTU-OK, GATT-READ-OK (Bramble), GATT-WRITE-OK, GATT-DONE.
+# GATT-MTU-OK, GATT-READ-OK (Pico-emu), GATT-WRITE-OK, GATT-DONE.
 # Sweep looks for GATT-DONE (no peer needed; fully self-contained).
 d = Demo("ble_gatt_rv32", "BLE GATT Test")
 d.pstr("RV32 BLE Starting (BT shared bus via PIO2)\n")
@@ -2211,7 +2211,7 @@ d.emit("lbu t0, 0(s2)")
 d.li("t1", 0x03)
 d.emit("bne t0, t1, ga_gatt_fail")
 d.pstr("RV32 BLE GATT-MTU-OK\n")
-# ATT Read Request handle 0x0011 (device name); expect "Bramble".
+# ATT Read Request handle 0x0011 (device name); expect "Pico-emu".
 d.emit("mv t6, s3")
 d.emit("addi t6, t6, 768")
 _ba_store(d, "t6", 0, bytes([0x0B, 0x00, 0x00, 0x02, 0x42, 0x00, 0x07, 0x00,
@@ -2234,7 +2234,7 @@ d.emit("lbu t0, 0(s2)")
 d.li("t1", 0x0B)
 d.emit("bne t0, t1, ga_gatt_fail")
 d.emit("lbu t0, 1(s2)")
-d.li("t1", 0x42)  # 'B' of Bramble
+d.li("t1", 0x42)  # 'B' of Pico-emu
 d.emit("bne t0, t1, ga_gatt_fail")
 d.pstr("RV32 BLE GATT-READ-OK\n")
 # ATT Write Request handle 0x0012 <- "Hi", then Read back.

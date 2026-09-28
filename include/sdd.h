@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /* ========================================================================
- * Bramble Software-Defined Device (SDD) Framework
+ * Pico-emu Software-Defined Device (SDD) Framework
  *
  * Pluggable virtual peripherals that attach to the emulator via I2C, SPI,
  * or the virtual network bus. Each SDD is a self-contained device model

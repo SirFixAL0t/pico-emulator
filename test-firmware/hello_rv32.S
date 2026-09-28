@@ -81,4 +81,4 @@ ug_wait:
 
     .section .rodata
     .align 2
-.Ls1: .asciz "Hello from Bramble RV32!\n"
+.Ls1: .asciz "Hello from Pico-emu RV32!\n"

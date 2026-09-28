@@ -14,7 +14,7 @@ on:
       description:
         description: "Package description"
         required: true
-        default: "Bramble RP2040/RP2350 (M0+/M33/RV32) browser emulator (WASM)"
+        default: "Pico-emu RP2040/RP2350 (M0+/M33/RV32) browser emulator (WASM)"
 
 permissions:
   contents: read
@@ -52,16 +52,16 @@ jobs:
               version: process.env.PKG_VERSION,
               description: process.env.PKG_DESC,
               type: "module",
-              main: "bramble.wasm.js",
+              main: "picoemu.wasm.js",
               bin: { picoemu: "cli.js" },
               license: "MIT",
               repository: { type: "git", url: "https://github.com/danish9661/picoemu.git" },
-              files: ["bramble.wasm.js", "bramble.wasm.threads.js", "bramble.wasm.wasm", "bramble.wasm.threads.wasm", "bramble_worker.js", "cli.js", "index.html", "*.uf2", "examples/*.uf2"],
+              files: ["picoemu.wasm.js", "picoemu.wasm.threads.js", "picoemu.wasm.wasm", "picoemu.wasm.threads.wasm", "picoemu_worker.js", "cli.js", "index.html", "*.uf2", "examples/*.uf2"],
             };
             fs.writeFileSync("web/package.json", JSON.stringify(pkg, null, 2) + "\n");
             console.log(fs.readFileSync("web/package.json", "utf8"));
           '
-          test -f web/bramble.wasm.js -a -f web/bramble.wasm.wasm -a -f web/index.html
+          test -f web/picoemu.wasm.js -a -f web/picoemu.wasm.wasm -a -f web/index.html
 
       - name: Vendor MIT license into package (upstream attribution)
         run: cp LICENSE web/LICENSE

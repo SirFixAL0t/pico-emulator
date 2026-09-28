@@ -17,7 +17,7 @@
  *   cmake .. -DENABLE_FUSE=ON
  *
  * Usage:
- *   ./bramble firmware.uf2 -flash fs.bin -mount /tmp/pico
+ *   ./picoemu firmware.uf2 -flash fs.bin -mount /tmp/pico
  *
  * Then in another terminal:
  *   ls /tmp/pico/

@@ -1,5 +1,5 @@
 /*
- * Bramble Software-Defined Device (SDD) Framework
+ * Pico-emu Software-Defined Device (SDD) Framework
  *
  * Registry and lifecycle management for pluggable virtual peripherals.
  * Devices register their bus callbacks (I2C/SPI) and are automatically

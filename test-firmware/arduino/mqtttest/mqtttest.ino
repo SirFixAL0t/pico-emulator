@@ -17,7 +17,7 @@ void setup() {
   Serial.println("MQTT-START");
   WiFi.config(IPAddress(192, 168, 4, 204), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
   WiFi.setDNS(IPAddress(192, 168, 4, 1));
-  WiFi.begin("BrambleNet", "testpassword");
+  WiFi.begin("Pico-emuNet", "testpassword");
   delay(3000);
   cyw43_arch_poll();
   sys_check_timeouts();

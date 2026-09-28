@@ -13,9 +13,9 @@ for SLAAC addresses in lib/lwip/src/core/netif.c (DAD-less builds); and an
 lwIP timer pump in ports/rp2/mpconfigport.h (MICROPY_INTERNAL_EVENT_HOOK
 runs sys_check_timeouts under lwip_lock — without it no lwIP timer fires:
 no DHCP retries/RS/DAD/TCP-RTO; TCP RTO verified firing with it).
-Guest main.py only needs to join BrambleNet (v6 SLAAC via periodic RA
+Guest main.py only needs to join Pico-emuNet (v6 SLAAC via periodic RA
 is automatic). Run:
-  ./build/bramble ~/mpbuild-w2/firmware.uf2 -clock 125 -wifi -net \\
+  ./build/picoemu ~/mpbuild-w2/firmware.uf2 -clock 125 -wifi -net \\
       -net-peer /tmp/mp6test.sock
   python3 test-firmware/mp6_peer_test.py /tmp/mp6test.sock
 Exit 0 + ALL MP6 CHECKS PASSED on success.

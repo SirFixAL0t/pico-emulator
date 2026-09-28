@@ -5,12 +5,12 @@ ADV announcements (ethertype 0x88B5) carry our MAC + BRV32 payload, injects
 a foreign ADV, and expects beacons to repeat (~2s cadence).
 
 Usage (two terminals):
-  ./build/bramble web/wifi_ble_adv_rv32.uf2 -clock 125 -wifi \\
+  ./build/picoemu web/wifi_ble_adv_rv32.uf2 -clock 125 -wifi \\
       -net -net-peer /tmp/bletest.sock
   python3 test-firmware/ble_peer_test.py /tmp/bletest.sock
 Exit 0 + ALL PEER CHECKS PASSED on success.
  guest SCAN-OK (report synthesis) needs the guest UART: run two
-bramble instances peered together (see docs/NETWORKING.md BLE row).
+picoemu instances peered together (see docs/NETWORKING.md BLE row).
 """
 import socket
 import struct

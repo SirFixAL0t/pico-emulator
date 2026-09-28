@@ -1,5 +1,5 @@
 /*
- * Bramble RP2040 Emulator - Test Suite
+ * Pico-emu RP2040 Emulator - Test Suite
  *
  * Comprehensive tests covering:
  *   v0.5.0: PRIMASK, SVC, RAM exec, dispatch, peripheral stubs, ADCS/SBCS/RSBS,
@@ -188,7 +188,7 @@ static void init_minimal_test_elf(uint8_t *elf_data, size_t size) {
 
 static const char *corepool_test_registry_path(void) {
     static char path[128];
-    snprintf(path, sizeof(path), "/tmp/bramble-corepool-test-%d.reg", (int)getpid());
+    snprintf(path, sizeof(path), "/tmp/picoemu-corepool-test-%d.reg", (int)getpid());
     return path;
 }
 
@@ -4009,7 +4009,7 @@ static void test_rtc_not_ticking_when_disabled(void) {
 TEST(test_sdcard_init_creates_state) {
     sdcard_t sd;
     /* Init with a temp path (won't actually create file in test) */
-    int rc = sdcard_init(&sd, "/tmp/bramble_test_sd.img", 1024 * 1024);
+    int rc = sdcard_init(&sd, "/tmp/picoemu_test_sd.img", 1024 * 1024);
     ASSERT_EQ(0, rc, "sdcard_init should succeed");
     ASSERT_TRUE(sd.data != NULL, "SD data buffer should be allocated");
     ASSERT_EQ(1024 * 1024, sd.size, "SD size should match");
@@ -4021,7 +4021,7 @@ TEST(test_sdcard_init_creates_state) {
 
 TEST(test_sdcard_cmd0_goes_idle) {
     sdcard_t sd;
-    sdcard_init(&sd, "/tmp/bramble_test_sd.img", 1024 * 1024);
+    sdcard_init(&sd, "/tmp/picoemu_test_sd.img", 1024 * 1024);
     sd.cs_active = 1;
 
     /* Send CMD0 (GO_IDLE_STATE): 0x40, 0x00, 0x00, 0x00, 0x00, 0x95 */
@@ -4042,7 +4042,7 @@ TEST(test_sdcard_cmd0_goes_idle) {
 
 TEST(test_sdcard_cmd8_returns_check_pattern) {
     sdcard_t sd;
-    sdcard_init(&sd, "/tmp/bramble_test_sd.img", 1024 * 1024);
+    sdcard_init(&sd, "/tmp/picoemu_test_sd.img", 1024 * 1024);
     sd.cs_active = 1;
 
     /* CMD8 (SEND_IF_COND): 0x48, 0x00, 0x00, 0x01, 0xAA, 0x87 */
@@ -4071,7 +4071,7 @@ TEST(test_sdcard_cmd8_returns_check_pattern) {
 
 TEST(test_sdcard_acmd41_initializes) {
     sdcard_t sd;
-    sdcard_init(&sd, "/tmp/bramble_test_sd.img", 1024 * 1024);
+    sdcard_init(&sd, "/tmp/picoemu_test_sd.img", 1024 * 1024);
     sd.cs_active = 1;
 
     /* CMD55 (APP_CMD) */
@@ -4095,7 +4095,7 @@ TEST(test_sdcard_acmd41_initializes) {
 
 TEST(test_sdcard_cmd17_read_block) {
     sdcard_t sd;
-    sdcard_init(&sd, "/tmp/bramble_test_sd.img", 1024 * 1024);
+    sdcard_init(&sd, "/tmp/picoemu_test_sd.img", 1024 * 1024);
     sd.cs_active = 1;
     sd.initialized = 1;
     sd.state = SD_STATE_READY;
@@ -4126,7 +4126,7 @@ TEST(test_sdcard_cmd17_read_block) {
 
 TEST(test_sdcard_cmd24_write_block) {
     sdcard_t sd;
-    sdcard_init(&sd, "/tmp/bramble_test_sd.img", 1024 * 1024);
+    sdcard_init(&sd, "/tmp/picoemu_test_sd.img", 1024 * 1024);
     sd.cs_active = 1;
     sd.initialized = 1;
     sd.state = SD_STATE_READY;
@@ -4168,7 +4168,7 @@ TEST(test_sdcard_cmd24_write_block) {
 
 TEST(test_emmc_init_creates_state) {
     emmc_t em;
-    int rc = emmc_init(&em, "/tmp/bramble_test_emmc.img", 2 * 1024 * 1024);
+    int rc = emmc_init(&em, "/tmp/picoemu_test_emmc.img", 2 * 1024 * 1024);
     ASSERT_EQ(0, rc, "emmc_init should succeed");
     ASSERT_TRUE(em.data != NULL, "eMMC data buffer should be allocated");
     ASSERT_EQ(2 * 1024 * 1024, em.size, "eMMC size should match");
@@ -4179,7 +4179,7 @@ TEST(test_emmc_init_creates_state) {
 
 TEST(test_emmc_cmd0_goes_idle) {
     emmc_t em;
-    emmc_init(&em, "/tmp/bramble_test_emmc.img", 2 * 1024 * 1024);
+    emmc_init(&em, "/tmp/picoemu_test_emmc.img", 2 * 1024 * 1024);
     em.cs_active = 1;
 
     /* CMD0 */
@@ -4194,7 +4194,7 @@ TEST(test_emmc_cmd0_goes_idle) {
 
 TEST(test_emmc_cmd1_initializes) {
     emmc_t em;
-    emmc_init(&em, "/tmp/bramble_test_emmc.img", 2 * 1024 * 1024);
+    emmc_init(&em, "/tmp/picoemu_test_emmc.img", 2 * 1024 * 1024);
     em.cs_active = 1;
 
     /* CMD1 (SEND_OP_COND) */
@@ -4211,7 +4211,7 @@ TEST(test_emmc_cmd1_initializes) {
 
 TEST(test_emmc_cmd17_read_block) {
     emmc_t em;
-    emmc_init(&em, "/tmp/bramble_test_emmc.img", 2 * 1024 * 1024);
+    emmc_init(&em, "/tmp/picoemu_test_emmc.img", 2 * 1024 * 1024);
     em.cs_active = 1;
     em.initialized = 1;
     em.state = EMMC_STATE_READY;
@@ -4242,7 +4242,7 @@ TEST(test_flash_persist_sync_no_crash_without_path) {
 }
 
 TEST(test_flash_persist_set_and_close) {
-    flash_persist_set_path("/tmp/bramble_test_flash.bin");
+    flash_persist_set_path("/tmp/picoemu_test_flash.bin");
     flash_persist_close();
     PASS();
 }
@@ -5302,7 +5302,7 @@ TEST(test_wire_poll_handles_partial_uart_frame) {
     wire_state.links[0].state = WIRE_CONNECTED;
     wire_state.links[0].listen_fd = -1;
     wire_state.links[0].peer_fd = sv[0];
-    strcpy(wire_state.links[0].path, "/tmp/bramble_test_wire.sock");
+    strcpy(wire_state.links[0].path, "/tmp/picoemu_test_wire.sock");
 
     wire_msg_t msg = { .type = WIRE_MSG_UART_DATA, .channel = 0, .len = 1, .reserved = 0 };
     uint8_t frame[sizeof(msg) + 1];
@@ -5341,7 +5341,7 @@ TEST(test_wire_eth_frame_relay) {
     wire_state.links[0].listen_fd = -1;
     wire_state.links[0].peer_fd = sv[0];
     wire_state.links[0].type = WIRE_MSG_ETH_FRAME;
-    strcpy(wire_state.links[0].path, "/tmp/bramble_test_eth.sock");
+    strcpy(wire_state.links[0].path, "/tmp/picoemu_test_eth.sock");
 
     /* Build a minimal Ethernet frame (14-byte header + 4-byte payload) */
     uint8_t frame[18];
@@ -5516,7 +5516,7 @@ TEST(test_vnet_generate_mac) {
     uint8_t mac[6];
     vnet_generate_mac(mac, 0);
     ASSERT_EQ(0x02, mac[0], "Locally-administered unicast");
-    ASSERT_EQ(0xBB, mac[1], "Bramble OUI");
+    ASSERT_EQ(0xBB, mac[1], "Pico-emu OUI");
     ASSERT_EQ(0x00, mac[5], "Index 0");
     vnet_generate_mac(mac, 255);
     ASSERT_EQ(0xFF, mac[5], "Index 255");
@@ -5596,7 +5596,7 @@ static int test_vnet_read_frame(int fd, uint8_t *out, int out_sz) {
 TEST(test_vnet_peer_backlog_flush) {
     /* Frames TX'd with no peer connected must be stashed and flushed
      * in order when a peer finally attaches (gateway-bridge race). */
-    const char *path = "/tmp/bramble_test_vnet_backlog.sock";
+    const char *path = "/tmp/picoemu_test_vnet_backlog.sock";
     unlink(path);
     vnet_init();
     ASSERT_EQ(0, vnet_add_peer(path), "add peer");
@@ -5642,7 +5642,7 @@ TEST(test_vnet_peer_backlog_flush) {
 TEST(test_vnet_peer_accept_on_tx) {
     /* A peer waiting in the listen backlog must be accepted on the TX
      * path itself (periodic poll may lag during guest WFE sleep). */
-    const char *path = "/tmp/bramble_test_vnet_txaccept.sock";
+    const char *path = "/tmp/picoemu_test_vnet_txaccept.sock";
     unlink(path);
     vnet_init();
     ASSERT_EQ(0, vnet_add_peer(path), "add peer");
@@ -5678,7 +5678,7 @@ TEST(test_vnet_peer_accept_on_tx) {
 
 TEST(test_vnet_peer_backlog_cap) {
     /* Backlog holds 16 frames; beyond that, drop-new. */
-    const char *path = "/tmp/bramble_test_vnet_backlogcap.sock";
+    const char *path = "/tmp/picoemu_test_vnet_backlogcap.sock";
     unlink(path);
     vnet_init();
     ASSERT_EQ(0, vnet_add_peer(path), "add peer");
@@ -7867,7 +7867,7 @@ int main(void) {
     rom_init();
 
     printf("========================================\n");
-    printf(" Bramble RP2040 Emulator - Test Suite\n");
+    printf(" Pico-emu RP2040 Emulator - Test Suite\n");
     printf(" Version 0.9.0 (Verbose)\n");
     printf("========================================\n");
 

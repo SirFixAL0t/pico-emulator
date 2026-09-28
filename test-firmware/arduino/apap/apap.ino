@@ -5,7 +5,7 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   Serial.println("AP-START");
-  WiFi.beginAP("BrambleAP");
+  WiFi.beginAP("Pico-emuAP");
   delay(3000);
   Serial.print("APIP=");
   Serial.println(WiFi.softAPIP());

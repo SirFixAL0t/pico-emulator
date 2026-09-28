@@ -83,7 +83,7 @@ static void build_csd_v2(uint8_t *csd, size_t card_size) {
 /* Build CID register - 16 bytes */
 static void build_cid(uint8_t *cid) {
     memset(cid, 0, 16);
-    cid[0]  = 0x02;            /* MID: Bramble */
+    cid[0]  = 0x02;            /* MID: Pico-emu */
     cid[1]  = 'B';             /* OID */
     cid[2]  = 'R';
     cid[3]  = 'B';             /* PNM: "BRMSD" */

@@ -2,7 +2,7 @@
 
 set -e
 
-echo "Building Bramble test firmware..."
+echo "Building Pico-emu test firmware..."
 
 mkdir -p build
 

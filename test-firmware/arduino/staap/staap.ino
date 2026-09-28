@@ -5,7 +5,7 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   Serial.println("STAA-START");
-  WiFi.beginNoBlock("BrambleAP");
+  WiFi.beginNoBlock("Pico-emuAP");
   Serial.println("STAA-BEGINRET");
   for (int i = 0; i < 25; i++) {
     delay(1000);

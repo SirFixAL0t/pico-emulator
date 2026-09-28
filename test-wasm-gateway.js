@@ -2,8 +2,8 @@
 // test-wasm-gateway.js — WASM WiFi E2E without external infra.
 //
 // Spins a minimal in-process WebSocket gateway (DHCP + ARP, stdlib only),
-// boots the RV32 join demo (web/wifi_join_rv32.uf2: joins BrambleNet via
-// WPA2, DHCP) in Bramble WASM via web/cli.js pointed at it, and asserts
+// boots the RV32 join demo (web/wifi_join_rv32.uf2: joins Pico-emuNet via
+// WPA2, DHCP) in Pico-emu WASM via web/cli.js pointed at it, and asserts
 // the lease. Covers: WASM CYW43 model, vnet mirror, cli.js WS plumbing.
 // Usage: node test-wasm-gateway.js  (exit 0 = PASS)
 import http from 'http';

@@ -11,7 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const mod = await (await import(path.join(HERE, 'bramble.wasm.js'))).default({
+const mod = await (await import(path.join(HERE, 'picoemu.wasm.js'))).default({
   print: () => {}, printErr: () => {},
 });
 
@@ -40,15 +40,15 @@ const budget = parseInt(opt('--steps', '2000000'), 10);
 const timeoutS = parseFloat(opt('--timeout', '30'));
 const cores = parseInt(opt('--cores', '2'), 10);
 
-mod._bramble_init(arch);
-mod._bramble_set_clock(clock);
-try { mod._bramble_set_cores(cores); } catch { /* older builds */ }
+mod._picoemu_init(arch);
+mod._picoemu_set_clock(clock);
+try { mod._picoemu_set_cores(cores); } catch { /* older builds */ }
 const ptr = mod._malloc(u8.length);
 mod.HEAPU8.set(u8, ptr);
-const ok = mod._bramble_load_uf2(ptr, u8.length);
+const ok = mod._picoemu_load_uf2(ptr, u8.length);
 mod._free(ptr);
 if (!ok) { console.error('picoemu: UF2 load failed'); process.exit(1); }
-mod._bramble_reset();
+mod._picoemu_reset();
 
 // Optional CYW43 WiFi (--wifi enables the model; with --gateway the
 // fake DHCP/DNS server is disabled like native -nodhcp).
@@ -56,9 +56,9 @@ mod._bramble_reset();
   const wantWifi = args.includes('--wifi') || opt('--gateway', '') !== '' || opt('--ble-hci', '') !== '';
   if (wantWifi) {
     const nodhcp = opt('--gateway', '') !== '' ? 1 : 0;
-    try { mod._bramble_wifi_enable(nodhcp); } catch {}
+    try { mod._picoemu_wifi_enable(nodhcp); } catch {}
   }
-  try { if (opt('--ble-hci', '') !== '') mod._bramble_bt_hci_enable(1); } catch {}
+  try { if (opt('--ble-hci', '') !== '') mod._picoemu_bt_hci_enable(1); } catch {}
 }
 
 // pico-eth/pico-eth2 board (WIZnet W5500-EVB-Pico/Pico2): separate SPI
@@ -71,7 +71,7 @@ mod._bramble_reset();
     let spi = parseInt(opt('--board-spi', '0'), 10);
     if (!(spi === 0 || spi === 1)) { console.error('picoemu: --board-spi must be 0 or 1'); process.exit(2); }
     const live = args.includes('--board-live') ? 1 : 0;
-    try { mod._bramble_board_eth(1, live, spi); } catch {}
+    try { mod._picoemu_board_eth(1, live, spi); } catch {}
     // Live needs the proxy pump outlet too (same as --net-w5500): without
     // an explicit URL, board-live defaults to the local proxy /w5500 path
     // so CONNECT/LISTEN/CLOSE/SEND actually reach net_proxy.py.
@@ -86,7 +86,7 @@ process.stdin.resume();
 process.stdin.on('data', (d) => {
   for (const b of d) {
     if (b === 3) process.exit(0); // Ctrl-C
-    mod._bramble_write_uart(b);
+    mod._picoemu_write_uart(b);
   }
 });
 
@@ -104,14 +104,14 @@ let gw = null;
     if (room) url += (url.includes('?') ? '&' : '?') + 'sessionId=' + encodeURIComponent(room);
     gw = new WebSocket(url);
     gw.binaryType = 'arraybuffer';
-    gw.onopen = () => { try { mod._bramble_eth_set_uplink(1); } catch {} };
-    gw.onclose = () => { try { mod._bramble_eth_set_uplink(0); } catch {} };
+    gw.onopen = () => { try { mod._picoemu_eth_set_uplink(1); } catch {} };
+    gw.onclose = () => { try { mod._picoemu_eth_set_uplink(0); } catch {} };
     gw.onmessage = (e) => {
       const arr = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : new Uint8Array(0);
       if (arr.length < 14 || arr.length > 1522) return;
       const p = mod._malloc(arr.length);
       mod.HEAPU8.set(arr, p);
-      try { mod._bramble_eth_push_rx(p, arr.length); } catch {}
+      try { mod._picoemu_eth_push_rx(p, arr.length); } catch {}
       mod._free(p);
     };
     gw.onerror = (e) => console.error('picoemu: gateway error ' + url + (e && e.message ? ' (' + e.message + ')' : ''));
@@ -136,20 +136,20 @@ let w5500ws = null;
         : typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(0);
       if (!arr.length) return;
       if (arr[0] === 0x53 && arr.length >= 4) {
-        try { mod._bramble_w5500_push_status(arr[1], arr[3]); } catch {}
+        try { mod._picoemu_w5500_push_status(arr[1], arr[3]); } catch {}
       } else if (arr[0] < 8 && arr.length >= 3) {
         const ln = arr[1] | (arr[2] << 8);
         const payload = arr.slice(3, 3 + ln);
         const p = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, p);
-        try { mod._bramble_w5500_push_rx(arr[0], p, payload.length); } catch {}
+        try { mod._picoemu_w5500_push_rx(arr[0], p, payload.length); } catch {}
         mod._free(p);
       } else if (arr[0] === 0x57 && arr.length >= 4) {
         const sock = arr[1], ln = arr[2] | (arr[3] << 8);
         const payload = arr.slice(4, 4 + ln);
         const p = mod._malloc(payload.length);
         mod.HEAPU8.set(payload, p);
-        try { mod._bramble_w5500_push_rx(sock, p, payload.length); } catch {}
+        try { mod._picoemu_w5500_push_rx(sock, p, payload.length); } catch {}
         mod._free(p);
       }
     };
@@ -168,7 +168,7 @@ let blehci = null;
       if (arr.length < 2 || arr.length > 1088) return;
       const p = mod._malloc(arr.length);
       mod.HEAPU8.set(arr, p);
-      try { mod._bramble_bt_hci_push_rx(p, arr.length); } catch {}
+      try { mod._picoemu_bt_hci_push_rx(p, arr.length); } catch {}
       mod._free(p);
     };
     blehci.onerror = (e) => console.error('picoemu: ble-hci error ' + url + (e && e.message ? ' (' + e.message + ')' : ''));
@@ -176,14 +176,14 @@ let blehci = null;
 }
 process.stdout.write('');
 while (done < budget && (Date.now() - t0) / 1000 < timeoutS) {
-  mod._bramble_step(Math.min(CHUNK, budget - done));
+  mod._picoemu_step(Math.min(CHUNK, budget - done));
   done += CHUNK;
   await tick(); // let stdin/stdio/events fire
   if (gw && gw.readyState === 1) {
     for (let i = 0; i < 16; i++) {
       const p = mod._malloc(2048);
       let got = -1;
-      try { got = mod._bramble_eth_pop_tx(p, 2048); } catch { mod._free(p); break; }
+      try { got = mod._picoemu_eth_pop_tx(p, 2048); } catch { mod._free(p); break; }
       if (got <= 0) { mod._free(p); break; }
       try { gw.send(mod.HEAPU8.slice(p, p + got)); } catch {}
       mod._free(p);
@@ -193,7 +193,7 @@ while (done < budget && (Date.now() - t0) / 1000 < timeoutS) {
     for (let i = 0; i < 16; i++) {
       const p = mod._malloc(2048);
       let got = -1;
-      try { got = mod._bramble_bt_hci_pop_tx(p, 2048); } catch { mod._free(p); break; }
+      try { got = mod._picoemu_bt_hci_pop_tx(p, 2048); } catch { mod._free(p); break; }
       if (got <= 0) { mod._free(p); break; }
       try { blehci.send(mod.HEAPU8.slice(p, p + got)); } catch {}
       mod._free(p);
@@ -204,19 +204,19 @@ while (done < budget && (Date.now() - t0) / 1000 < timeoutS) {
   // panel; NOT the OpenHW gateway (W5500 = socket-level TCP/UDP, not ETH).
   if (w5500ws && w5500ws.readyState === 1) {
     let budget = 0;
-    try { budget = mod._bramble_w5500_tx_len(); } catch { budget = 0; }
+    try { budget = mod._picoemu_w5500_tx_len(); } catch { budget = 0; }
     if (budget > 0) {
       const n = Math.min(budget, 8192);
       const p = mod._malloc(n);
       let got = 0;
-      try { got = mod._bramble_w5500_pop_tx(p, n); } catch { got = 0; }
+      try { got = mod._picoemu_w5500_pop_tx(p, n); } catch { got = 0; }
       if (got > 0) { try { w5500ws.send(mod.HEAPU8.slice(p, p + got)); } catch {} }
       mod._free(p);
     }
   }
   let s = '', ch, n = 0;
-  while ((ch = mod._bramble_read_uart(0)) !== -1 && n++ < 65536) s += String.fromCharCode(ch);
+  while ((ch = mod._picoemu_read_uart(0)) !== -1 && n++ < 65536) s += String.fromCharCode(ch);
   if (s) process.stdout.write(s);
-  try { if (mod._bramble_is_halted()) break; } catch { /* ignore */ }
+  try { if (mod._picoemu_is_halted()) break; } catch { /* ignore */ }
 }
 process.exit(0);

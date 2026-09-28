@@ -3,15 +3,15 @@ disable: true
 ---
 Build mode: active - this file is for build, not plan.
 
-# AGENTS.md — Bramble WASM RP2350 Browser Emulator
+# AGENTS.md — Pico-emu WASM RP2350 Browser Emulator
 
 ## Project Goal
 
-Compile Bramble (C, native RP2040/RP2350 emulator) to WebAssembly using Emscripten,
+Compile Pico-emu (C, native RP2040/RP2350 emulator) to WebAssembly using Emscripten,
 then build a TypeScript web UI layer to run the emulator in a browser at ~8-10x
 the speed of pure-JavaScript emulators (rp2040js, GhostRoboticsLab/rp2350js_emulator).
 
-## Why Bramble
+## Why Pico-emu
 
 - v0.50.0, 396 tests passing
 - Complete RP2040 + RP2350 (ARM + RISC-V Hazard3)
@@ -27,7 +27,7 @@ the speed of pure-JavaScript emulators (rp2040js, GhostRoboticsLab/rp2350js_emul
 ## Directory Structure
 
 ```
-Bramble/
+Pico-emu/
 ├── src/
 │   ├── main.c              # CLI entry point (REPLACE with WASM exports)
 │   ├── cpu.c               # ARM Cortex-M0+ core (O(1) dispatch)
@@ -99,45 +99,45 @@ Bramble/
 
 ### Phase 2: WASM Exports
 
-Replace `src/main.c` CLI logic with exported WASM functions. Create `src/bramble_wasm.c`:
+Replace `src/main.c` CLI logic with exported WASM functions. Create `src/picoemu_wasm.c`:
 
 ```c
 // Exported to JS via Emscripten
 EMSCRIPTEN_KEEPALIVE
-int bramble_init(int arch);           // 0=M0+, 1=M33, 2=RV32
+int picoemu_init(int arch);           // 0=M0+, 1=M33, 2=RV32
 
 EMSCRIPTEN_KEEPALIVE
-void bramble_reset(void);
+void picoemu_reset(void);
 
 EMSCRIPTEN_KEEPALIVE
-int bramble_load_uf2(const uint8_t *data, int len);
+int picoemu_load_uf2(const uint8_t *data, int len);
 
 EMSCRIPTEN_KEEPALIVE
-int bramble_load_elf(const uint8_t *data, int len);
+int picoemu_load_elf(const uint8_t *data, int len);
 
 EMSCRIPTEN_KEEPALIVE
-int bramble_step(int n_instructions);  // Run N steps, return cycles used
+int picoemu_step(int n_instructions);  // Run N steps, return cycles used
 
 EMSCRIPTEN_KEEPALIVE
-void bramble_set_clock(int freq_mhz);
+void picoemu_set_clock(int freq_mhz);
 
 EMSCRIPTEN_KEEPALIVE
-int bramble_read_uart(int port);       // Returns char or -1
+int picoemu_read_uart(int port);       // Returns char or -1
 
 EMSCRIPTEN_KEEPALIVE
-void bramble_write_uart(int port, int ch);
+void picoemu_write_uart(int port, int ch);
 
 EMSCRIPTEN_KEEPALIVE
-int bramble_get_gpio(int pin);
+int picoemu_get_gpio(int pin);
 
 EMSCRIPTEN_KEEPALIVE
-void bramble_set_gpio(int pin, int val);
+void picoemu_set_gpio(int pin, int val);
 
 EMSCRIPTEN_KEEPALIVE
-uint32_t bramble_mem_read32(uint32_t addr);
+uint32_t picoemu_mem_read32(uint32_t addr);
 
 EMSCRIPTEN_KEEPALIVE
-void bramble_mem_write32(uint32_t addr, uint32_t val);
+void picoemu_mem_write32(uint32_t addr, uint32_t val);
 
 // Direct memory access (fast path — no function call overhead)
 // JS accesses: Module.HEAPU8, Module.HEAPU32
@@ -147,7 +147,7 @@ void bramble_mem_write32(uint32_t addr, uint32_t val);
 
 ```bash
 emcc \
-  src/bramble_wasm.c \
+  src/picoemu_wasm.c \
   src/cpu.c src/instructions.c src/thumb32.c src/membus.c \
   src/uf2.c src/elf.c src/gpio.c src/timer.c src/uart.c \
   src/spi.c src/i2c.c src/pwm.c src/adc.c src/dma.c \
@@ -164,15 +164,15 @@ emcc \
   -s WASM=1 \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s MODULARIZE=1 \
-  -s EXPORT_NAME="BrambleModule" \
-  -s EXPORTED_FUNCTIONS='["_bramble_init","_bramble_reset","_bramble_load_uf2","_bramble_load_elf","_bramble_step","_bramble_set_clock","_bramble_read_uart","_bramble_write_uart","_bramble_get_gpio","_bramble_set_gpio","_bramble_mem_read32","_bramble_mem_write32","_free","_malloc"]' \
+  -s EXPORT_NAME="PicoemuModule" \
+  -s EXPORTED_FUNCTIONS='["_picoemu_init","_picoemu_reset","_picoemu_load_uf2","_picoemu_load_elf","_picoemu_step","_picoemu_set_clock","_picoemu_read_uart","_picoemu_write_uart","_picoemu_get_gpio","_picoemu_set_gpio","_picoemu_mem_read32","_picoemu_mem_write32","_free","_malloc"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","getValue","setValue"]' \
   -s INITIAL_MEMORY=134217728 \
   -s MAXIMUM_MEMORY=268435456 \
   -s STACK_SIZE=1048576 \
   -s NO_EXIT_RUNTIME=1 \
   -s ENVIRONMENT='web' \
-  -o web/bramble.wasm.js
+  -o web/picoemu.wasm.js
 ```
 
 ### Phase 4: TypeScript Bridge + Web UI
@@ -182,8 +182,8 @@ Create `web/` directory with:
 ```
 web/
 ├── index.html              # Main page
-├── bramble.ts              # TypeScript bridge over WASM
-├── bramble.d.ts            # WASM type declarations
+├── picoemu.ts              # TypeScript bridge over WASM
+├── picoemu.d.ts            # WASM type declarations
 ├── ui/
 │   ├── serial-monitor.ts   # UART output display
 │   ├── pin-viewer.ts       # GPIO state visualization
@@ -194,42 +194,42 @@ web/
 └── tsconfig.json
 ```
 
-#### bramble.ts (Bridge Layer)
+#### picoemu.ts (Bridge Layer)
 
 ```typescript
 // Minimal JS layer — minimizes WASM↔JS boundary crossings
 
-let bramble: any;
+let picoemu: any;
 let uartBuffer: string = '';
 
 export async function init() {
-  const factory = (await import('./bramble.wasm.js')).default;
-  bramble = await factory();
-  bramble.bramble_init(2); // RP2350 RV32
+  const factory = (await import('./picoemu.wasm.js')).default;
+  picoemu = await factory();
+  picoemu.picoemu_init(2); // RP2350 RV32
 }
 
 export function loadUF2(data: Uint8Array) {
-  const ptr = bramble._malloc(data.length);
-  bramble.HEAPU8.set(data, ptr);
-  bramble.bramble_load_uf2(ptr, data.length);
-  bramble._free(ptr);
+  const ptr = picoemu._malloc(data.length);
+  picoemu.HEAPU8.set(data, ptr);
+  picoemu.picoemu_load_uf2(ptr, data.length);
+  picoemu._free(ptr);
 }
 
 // Run emulator in requestAnimationFrame loop
 // 150MHz / 60fps = 2.5M instructions per frame
 export function runFrame() {
   const CYCLES_PER_FRAME = 2_500_000;
-  bramble.bramble_step(CYCLES_PER_FRAME);
+  picoemu.picoemu_step(CYCLES_PER_FRAME);
 
   // Collect UART output (once per frame, not per instruction)
   while (true) {
-    const ch = bramble.bramble_read_uart(0);
+    const ch = picoemu.picoemu_read_uart(0);
     if (ch === -1) break;
     uartBuffer += String.fromCharCode(ch);
   }
 
   // Update GPIO display
-  const gpio25 = bramble.bramble_get_gpio(25);
+  const gpio25 = picoemu.picoemu_get_gpio(25);
   updateLED(gpio25);
 
   requestAnimationFrame(runFrame);
@@ -237,7 +237,7 @@ export function runFrame() {
 
 // Fast path: direct memory access (no function call overhead)
 export function readMemory32(addr: number): number {
-  return bramble.HEAPU32[addr >> 2];
+  return picoemu.HEAPU32[addr >> 2];
 }
 ```
 
@@ -275,7 +275,7 @@ Key strategies to maximize WASM speed:
 
 | File | Reason | Action |
 |------|--------|--------|
-| `src/main.c` | CLI entry point | Replace with `bramble_wasm.c` exports |
+| `src/main.c` | CLI entry point | Replace with `picoemu_wasm.c` exports |
 | `src/fuse_mount.c` | No FUSE in browser | `#ifdef` guard or exclude from build |
 | `src/corepool.c` | No pthreads in WASM (without SharedArrayBuffer) | Disable, use cooperative stepping |
 | `src/tapif.c` | No TAP device in browser | Disable, use WebSocket proxy instead |
@@ -299,7 +299,7 @@ All of these must compile to WASM:
 
 ## Key Performance Numbers (Expected)
 
-| Metric | rp2040js (pure JS) | Bramble WASM | Improvement |
+| Metric | rp2040js (pure JS) | Pico-emu WASM | Improvement |
 |--------|---------------------|--------------|-------------|
 | Instructions/sec | ~5-15M | ~50-100M | **5-10x** |
 | UART throughput | ~10K chars/sec | ~100K chars/sec | **10x** |
@@ -321,9 +321,9 @@ to read UART output and update the display. Use direct memory access
 
 1. Install Emscripten SDK
 2. Create `build_wasm.sh` script
-3. Create `src/bramble_wasm.c` with WASM exports
-4. Compile Bramble to WASM, fix any build errors
-5. Create minimal `web/index.html` + `web/bramble.ts`
+3. Create `src/picoemu_wasm.c` with WASM exports
+4. Compile Pico-emu to WASM, fix any build errors
+5. Create minimal `web/index.html` + `web/picoemu.ts`
 6. Boot `hello_world.uf2` in browser
 7. Add serial monitor UI
 8. Add GPIO pin viewer

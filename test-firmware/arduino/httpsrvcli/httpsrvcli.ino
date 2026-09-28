@@ -6,7 +6,7 @@ void setup() {
   Serial.println("HTTP-START2");
   WiFi.config(IPAddress(192, 168, 4, 205), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
   WiFi.setDNS(IPAddress(192, 168, 4, 1));
-  WiFi.begin("BrambleNet", "testpassword");
+  WiFi.begin("Pico-emuNet", "testpassword");
   delay(3000);
   cyw43_arch_poll();
   WiFiClient c;

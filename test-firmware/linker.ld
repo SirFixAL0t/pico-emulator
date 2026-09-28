@@ -1,4 +1,4 @@
-/* Linker Script for Bramble RP2040 Emulator
+/* Linker Script for Pico-emu RP2040 Emulator
  * 
  * This linker script ensures:
  * 1. Vector table placed at 0x10000100 (after boot2)

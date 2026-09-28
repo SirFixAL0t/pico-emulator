@@ -6,7 +6,7 @@ eth_dhcp_common, same lease pool as the Go gateway: .2 / server .1),
 and expects the guest to print ETH DONE.
 
 Usage (two terminals):
-  ./build/bramble web/eth_dhcp.uf2 -board pico-eth \\
+  ./build/picoemu web/eth_dhcp.uf2 -board pico-eth \\
       -net -net-peer /tmp/dhcptest.sock
   python3 test-firmware/dhcp_peer_test.py /tmp/dhcptest.sock
 Exit 0 + ALL DHCP CHECKS PASSED on success.

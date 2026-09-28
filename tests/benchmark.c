@@ -1,5 +1,5 @@
 /*
- * Bramble JIT Benchmark
+ * Pico-emu JIT Benchmark
  *
  * Measures emulator throughput with and without JIT block compilation.
  * Builds synthetic firmware with tight loops, then compares wall-clock
@@ -224,7 +224,7 @@ static void reset_core(void) {
 
 int main(void) {
     printf("═══════════════════════════════════════════════════════════\n");
-    printf(" Bramble JIT Benchmark\n");
+    printf(" Pico-emu JIT Benchmark\n");
     printf("═══════════════════════════════════════════════════════════\n\n");
 
     cpu_init();

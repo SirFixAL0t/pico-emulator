@@ -4,7 +4,7 @@
 Lets native picoemu instances use the Go gateway for DHCP/DNS/NAT and
 room LAN play without root/TAP:
 
-  bramble a.uf2 -wifi -nodhcp -net -net-peer /tmp/gwroom.sock -mac DE:AD:BE:EF:00:01
+  picoemu a.uf2 -wifi -nodhcp -net -net-peer /tmp/gwroom.sock -mac DE:AD:BE:EF:00:01
   python3 web/gateway_bridge.py --sock /tmp/gwroom.sock --room lab
 
 Protocol: vnet peer framing is 4-byte LE length + raw ETH frame.

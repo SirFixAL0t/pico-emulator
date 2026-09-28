@@ -1,9 +1,9 @@
 /*
- * Bramble Virtual Network Bus
+ * Pico-emu Virtual Network Bus
  *
  * Central frame routing layer. Device models register as ports, and all
  * Ethernet frames are routed between ports, the TAP interface, and peer
- * Bramble instances.
+ * Pico-emu instances.
  *
  * Peer connections use a simple length-prefixed framing over Unix domain
  * sockets: [4-byte LE length][Ethernet frame]. This enables Ethernet-level
@@ -23,7 +23,7 @@
 
 vnet_state_t vnet;
 
-/* WS gateway uplink mirror (set by bramble_wasm.c, NULL = disabled). */
+/* WS gateway uplink mirror (set by picoemu_wasm.c, NULL = disabled). */
 vnet_mirror_fn vnet_ws_mirror = NULL;
 
 /* ========================================================================
@@ -39,7 +39,7 @@ static void set_nonblock(int fd) {
 void vnet_generate_mac(uint8_t *mac, int index) {
     /* Locally administered, unicast: bit 1 of first byte set, bit 0 clear */
     mac[0] = 0x02;
-    mac[1] = 0xBB;  /* "Bramble" */
+    mac[1] = 0xBB;  /* "Pico-emu" */
     mac[2] = 0x00;
     mac[3] = 0x00;
     mac[4] = 0x00;

@@ -264,7 +264,7 @@ uint32_t rv_bootrom_init(uint8_t *rom, uint32_t rom_size,
     /* 0x0200: Data blobs returned by rom_data_lookup() */
     rom_w32(rom, RV_ROM_DATA_FLASH_DEVINFO16_PTR_LITERAL, RV_ROM_DATA_FLASH_DEVINFO16_WORD);
     rom_w16(rom, RV_ROM_DATA_FLASH_DEVINFO16_WORD, rv_rom_flash_devinfo_word(RP2350_FLASH_DEFAULT));
-    memcpy(&rom[RV_ROM_DATA_GIT_REVISION_STRING], "bramble-rv", sizeof("bramble-rv"));
+    memcpy(&rom[RV_ROM_DATA_GIT_REVISION_STRING], "picoemu-rv", sizeof("picoemu-rv"));
 
     /* 0x0280: Data table entries [32-bit code, 32-bit address] */
     tbl = RV_ROM_DATA_TABLE_BASE;

@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /* ========================================================================
- * Bramble Network Bridge
+ * Pico-emu Network Bridge
  *
  * Bridges UART peripherals to TCP sockets, enabling network communication
  * with the emulated RP2040. Supports both listen (server) and connect

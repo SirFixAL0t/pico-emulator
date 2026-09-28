@@ -26,7 +26,7 @@ arduino-cli compile --fqbn rp2040:rp2040:wiznet_5500_evb_pico \
 Run it against the python peer (needs a live peer — no dead-peer marker):
 
 ```sh
-./build/bramble /tmp/ethdhcp/out/ethdhcp.ino.uf2 -board pico-eth \
+./build/picoemu /tmp/ethdhcp/out/ethdhcp.ino.uf2 -board pico-eth \
     -net-peer /tmp/ethdhcp.sock -clock 125
 python3 test-firmware/dhcp_peer_test.py /tmp/ethdhcp.sock
 # expect ALL DHCP CHECKS PASSED + ETH-IP=192.168.4.2 on UART
@@ -55,9 +55,9 @@ Run pattern (native gateway path, room `lab`):
 ```sh
 python3 web/gateway_bridge.py --sock /tmp/gwA.sock --room lab &
 python3 web/gateway_bridge.py --sock /tmp/gwB.sock --room lab &
-./build/bramble /tmp/out/srv.ino.uf2 -clock 125 -wifi -nodhcp -net \
+./build/picoemu /tmp/out/srv.ino.uf2 -clock 125 -wifi -nodhcp -net \
   -net-peer /tmp/gwA.sock -mac DE:AD:BE:EF:00:01 &
-./build/bramble /tmp/out/cli.ino.uf2 -clock 125 -wifi -nodhcp -net \
+./build/picoemu /tmp/out/cli.ino.uf2 -clock 125 -wifi -nodhcp -net \
   -net-peer /tmp/gwB.sock -mac DE:AD:BE:EF:00:02
 ```
 

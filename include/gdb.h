@@ -6,7 +6,7 @@
  * watchpoints, conditional breakpoints, dual-core debugging,
  * single-step, continue.
  *
- * Usage: ./bramble firmware.uf2 -gdb [port]
+ * Usage: ./picoemu firmware.uf2 -gdb [port]
  * Then: arm-none-eabi-gdb -ex "target remote :3333"
  */
 
@@ -105,14 +105,14 @@ int gdb_handle(void);
 
 #ifdef __EMSCRIPTEN__
 /* WASM WebSocket transport (see src/gdb.c): non-blocking queues */
-void bramble_gdb_push_rx(const uint8_t *data, int len);
-int bramble_gdb_pop_tx(uint8_t *out, int maxlen);
-int bramble_gdb_tx_len(void);
-int bramble_gdb_start(void);
-void bramble_gdb_stop(void);
-void bramble_gdb_notify_stop(void);
+void picoemu_gdb_push_rx(const uint8_t *data, int len);
+int picoemu_gdb_pop_tx(uint8_t *out, int maxlen);
+int picoemu_gdb_tx_len(void);
+int picoemu_gdb_start(void);
+void picoemu_gdb_stop(void);
+void picoemu_gdb_notify_stop(void);
 /* Poll one packet while stopped: 0=resume,1=step,2=still stopped,-1=detach */
-int bramble_gdb_poll(void);
+int picoemu_gdb_poll(void);
 #endif
 
 /* Watchpoint checks - called from membus on every memory access.

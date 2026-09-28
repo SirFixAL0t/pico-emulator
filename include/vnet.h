@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /* ========================================================================
- * Bramble Virtual Network Bus
+ * Pico-emu Virtual Network Bus
  *
  * Central routing layer for all emulated Ethernet traffic. Device models
  * (CYW43, W5500, software-defined devices) register as ports. Incoming
@@ -13,7 +13,7 @@
  *
  * Usage:
  *   -net                     Create TAP + NAT in one step (auto-sudo)
- *   -net-peer <path>         Mesh with another Bramble instance
+ *   -net-peer <path>         Mesh with another Pico-emu instance
  *
  * Architecture:
  *   ┌─────────┐  ┌─────────┐  ┌───────┐  ┌──────────┐
@@ -41,7 +41,7 @@
 #define VNET_GUEST_IP      "192.168.4.100"
 #define VNET_SUBNET        "192.168.4.0/24"
 #define VNET_NETMASK       "255.255.255.0"
-#define VNET_TAP_NAME      "bramble0"
+#define VNET_TAP_NAME      "picoemu0"
 
 /* Port types for logging/debug */
 typedef enum {
@@ -64,7 +64,7 @@ typedef struct {
     void *ctx;
 } vnet_port_t;
 
-/* Peer connection (another Bramble instance) */
+/* Peer connection (another Pico-emu instance) */
 typedef struct {
     int fd;                     /* Connected socket fd (-1 if unused) */
     int listen_fd;              /* Listening socket fd (-1 if client) */
@@ -123,7 +123,7 @@ void vnet_cleanup(void);
 /* ======================================================================== */
 
 /* Attach a TAP interface and configure IP + NAT.
- * If name is NULL, uses VNET_TAP_NAME ("bramble0").
+ * If name is NULL, uses VNET_TAP_NAME ("picoemu0").
  * Returns 0 on success, -1 on error. */
 int  vnet_attach_tap(const char *name);
 
@@ -157,7 +157,7 @@ void vnet_tx_frame(int src_port, const uint8_t *frame, int len);
 
 /* WS gateway uplink mirror (WASM): called for every transmitted frame
  * when non-NULL. The owner must avoid re-injecting gateway-originated
- * frames (see bramble_wasm.c eth_from_gateway guard). */
+ * frames (see picoemu_wasm.c eth_from_gateway guard). */
 typedef void (*vnet_mirror_fn)(const uint8_t *frame, int len);
 extern vnet_mirror_fn vnet_ws_mirror;
 

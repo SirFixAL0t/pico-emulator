@@ -4,7 +4,7 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   Serial.println("STAJ-START");
-  WiFi.beginNoBlock("BrambleAP");
+  WiFi.beginNoBlock("Pico-emuAP");
   for (int i = 0; i < 15; i++) {
     delay(1000);
     cyw43_arch_poll();

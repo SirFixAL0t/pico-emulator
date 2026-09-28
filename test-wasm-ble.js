@@ -3,7 +3,7 @@
 //
 // Spins a minimal in-process WebSocket HCI server (answers the demo's
 // bring-up commands with Command Complete), boots the RV32 BLE demo
-// (web/wifi_ble_adv_rv32.uf2) in Bramble WASM via web/cli.js pointed at
+// (web/wifi_ble_adv_rv32.uf2) in Pico-emu WASM via web/cli.js pointed at
 // it with --ble-hci, and asserts ADV-OK on UART. Covers: WASM CYW43 BT
 // shared bus, H4 ring uplink (pop/push exports), cli.js WS plumbing.
 // Usage: node test-wasm-ble.js  (exit 0 = PASS)

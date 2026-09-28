@@ -17,12 +17,12 @@ jobs:
       - name: Unit tests (377)
         run: ctest --test-dir build --output-on-failure
       - name: Benchmark smoke
-        run: ./build/bramble_bench | tail -n 8
+        run: ./build/picoemu_bench | tail -n 8
       - name: Firmware smoke (hello/gpio/timer/usb)
         run: |
-          ./bramble web/hello_world.uf2 | grep -q "Hello from Bramble" && echo "hello PASS"
-          ./bramble web/gpio_test.uf2 -clock 125 | grep -q "LED ON" && echo "gpio PASS"
-          ./bramble web/usb_test.uf2 -clock 125 | grep -q "USB Test Complete" && echo "usb PASS"
+          ./picoemu web/hello_world.uf2 | grep -q "Hello from Pico-emu" && echo "hello PASS"
+          ./picoemu web/gpio_test.uf2 -clock 125 | grep -q "LED ON" && echo "gpio PASS"
+          ./picoemu web/usb_test.uf2 -clock 125 | grep -q "USB Test Complete" && echo "usb PASS"
 
   wasm-smoke:
     runs-on: ubuntu-latest
@@ -35,7 +35,7 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j
-      - name: WASM boots (uses committed web/bramble.wasm.*)
+      - name: WASM boots (uses committed web/picoemu.wasm.*)
         run: node test-wasm.js
 
   browser:
@@ -72,7 +72,7 @@ jobs:
                   pg.click("#btn-run")
                   pg.wait_for_timeout(3000)
                   serial = pg.text_content("#serial-output")
-                  assert "Hello from Bramble" in serial, serial[:200]
+                  assert "Hello from Pico-emu" in serial, serial[:200]
                   print("browser hello PASS")
                   b.close()
           finally:
@@ -94,7 +94,7 @@ jobs:
           cmake --build build -j
       - name: GDB session (break main, backtrace, stepi, detach)
         run: |
-          ./build/bramble web/hello_usb.uf2 -gdb 13347 &
+          ./build/picoemu web/hello_usb.uf2 -gdb 13347 &
           EMU=$!
           sleep 1
           gdb -q -batch \

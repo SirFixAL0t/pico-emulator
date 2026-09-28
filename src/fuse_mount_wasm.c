@@ -23,7 +23,7 @@ int fuse_mount_start(uint8_t *flash_data, size_t flash_size, const char *mount_p
         }
         /* Persist mount descriptor so UI can show it */
         if (typeof window !== 'undefined') {
-            window.brambleMountPoint = UTF8ToString($0);
+            window.picoemuMountPoint = UTF8ToString($0);
         }
     }, mount_point);
     /* Persist current flash image to MEMFS so it survives resets, and try
@@ -36,7 +36,7 @@ int fuse_mount_start(uint8_t *flash_data, size_t flash_size, const char *mount_p
             }
         } catch(e) {}
     });
-    FILE *f = fopen("/persist/bramble_flash.bin", "wb");
+    FILE *f = fopen("/persist/picoemu_flash.bin", "wb");
     if (f) {
         fwrite(flash_data, 1, flash_size, f);
         fclose(f);

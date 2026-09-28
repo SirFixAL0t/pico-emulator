@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bramble RP2040/RP2350 Emulator - Build Script
+# Pico-emu RP2040/RP2350 Emulator - Build Script
 #
 # Usage:
 #   ./build.sh              Build with auto-detected features
@@ -30,7 +30,7 @@ for arg in "$@"; do
         --release)  BUILD_TYPE="Release" ;;
         --debug)    BUILD_TYPE="Debug" ;;
         --help|-h)
-            echo "Bramble RP2040/RP2350 Emulator - Build Script"
+            echo "Pico-emu RP2040/RP2350 Emulator - Build Script"
             echo ""
             echo "Usage: ./build.sh [options]"
             echo ""
@@ -50,9 +50,9 @@ for arg in "$@"; do
             echo "  src/rp2350_arm/   ARM Cortex-M33 (RP2350, planned)"
             echo ""
             echo "Build output:"
-            echo "  ./bramble          Main emulator binary"
-            echo "  ./bramble_tests    Test suite"
-            echo "  ./bramble_bench    Performance benchmark"
+            echo "  ./picoemu          Main emulator binary"
+            echo "  ./picoemu_tests    Test suite"
+            echo "  ./picoemu_bench    Performance benchmark"
             exit 0
             ;;
         *)
@@ -63,7 +63,7 @@ for arg in "$@"; do
 done
 
 echo "╔════════════════════════════════════════════╗"
-echo "║   Bramble RP2040/RP2350 Emulator - Build ║"
+echo "║   Pico-emu RP2040/RP2350 Emulator - Build ║"
 echo "╚════════════════════════════════════════════╝"
 echo ""
 
@@ -119,20 +119,20 @@ echo "╚═══════════════════════�
 echo ""
 
 # Show what was built
-if [ -f bramble ]; then
-    SIZE=$(ls -lh bramble | awk '{print $5}')
-    echo "  bramble          ${SIZE}"
+if [ -f picoemu ]; then
+    SIZE=$(ls -lh picoemu | awk '{print $5}')
+    echo "  picoemu          ${SIZE}"
 fi
-if [ -f build/bramble_tests ]; then
-    SIZE=$(ls -lh build/bramble_tests | awk '{print $5}')
-    echo "  bramble_tests    ${SIZE}"
+if [ -f build/picoemu_tests ]; then
+    SIZE=$(ls -lh build/picoemu_tests | awk '{print $5}')
+    echo "  picoemu_tests    ${SIZE}"
 fi
-if [ -f build/bramble_bench ]; then
-    SIZE=$(ls -lh build/bramble_bench | awk '{print $5}')
-    echo "  bramble_bench    ${SIZE}"
+if [ -f build/picoemu_bench ]; then
+    SIZE=$(ls -lh build/picoemu_bench | awk '{print $5}')
+    echo "  picoemu_bench    ${SIZE}"
 fi
 
 echo ""
-echo "Run: ./bramble <firmware.uf2> [options]"
-echo "Test: ./build/bramble_tests"
-echo "Bench: ./build/bramble_bench"
+echo "Run: ./picoemu <firmware.uf2> [options]"
+echo "Test: ./build/picoemu_tests"
+echo "Bench: ./build/picoemu_bench"

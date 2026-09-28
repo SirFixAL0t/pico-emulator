@@ -1,5 +1,5 @@
 /*
- * Developer Tools for Bramble RP2040 Emulator
+ * Developer Tools for Pico-emu RP2040 Emulator
  *
  * Implementation of semihosting, coverage, hotspots, trace,
  * SYSCFG, and TBMAN peripherals.

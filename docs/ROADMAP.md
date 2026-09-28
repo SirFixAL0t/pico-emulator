@@ -1,4 +1,4 @@
-# Bramble RP2040/RP2350 Emulator - Roadmap
+# Pico-emu RP2040/RP2350 Emulator - Roadmap
 
 ## Current State: 2026-09-23 (sweep 62/62, 431/431, M33 Arduino DORA green)
 
@@ -43,12 +43,12 @@
 
 ## Previous State: v0.47.0-WASM
 
-| New | WASM Parity | Complete | `bramble_step` polls (pio/usb/net/vnet/w5500/cyw43/flush/fault/script/watchdog/gdb), GDB RSP WebSocket proxy (`net_proxy.py` WS<->TCP, UART+GDB verified), W5500 dest-aware dial (CON/DISCON/RECV, echo verified), ETH BroadcastChannel mesh, devtools 18/18 + download, worker threads + `-pthread` SAB variant (hello PASS), `test-wasm.js` + CI matrix, USB strings + SET_INTERFACE, 24LC256 EEPROM SDD, bench 74.5/129 native + 17.4 WASM MIPS, 324/324 + Playwright 0 errors |
+| New | WASM Parity | Complete | `picoemu_step` polls (pio/usb/net/vnet/w5500/cyw43/flush/fault/script/watchdog/gdb), GDB RSP WebSocket proxy (`net_proxy.py` WS<->TCP, UART+GDB verified), W5500 dest-aware dial (CON/DISCON/RECV, echo verified), ETH BroadcastChannel mesh, devtools 18/18 + download, worker threads + `-pthread` SAB variant (hello PASS), `test-wasm.js` + CI matrix, USB strings + SET_INTERFACE, 24LC256 EEPROM SDD, bench 74.5/129 native + 17.4 WASM MIPS, 324/324 + Playwright 0 errors |
 |-----|-------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 
 ## Previous State: v0.46.0-WASM
 
-| New | WASM Port | Complete | Emscripten 6.0.9 `-O3 -msimd128` `web/bramble.wasm.{js,wasm}` 156K, `src/bramble_wasm.c` exports, `web/` `Examples` SPI/I2C/PWM/ADC/DMA/PIO/USB for RP2040+RP2350 + MicroPython both chips, Playwright verified `log` not `error`, GitHub Pages `web/.nojekyll` `pages.yml` |
+| New | WASM Port | Complete | Emscripten 6.0.9 `-O3 -msimd128` `web/picoemu.wasm.{js,wasm}` 156K, `src/picoemu_wasm.c` exports, `web/` `Examples` SPI/I2C/PWM/ADC/DMA/PIO/USB for RP2040+RP2350 + MicroPython both chips, Playwright verified `log` not `error`, GitHub Pages `web/.nojekyll` `pages.yml` |
 |-----|-----------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 
 ## Previous State: v0.45.0
@@ -74,11 +74,11 @@
 
 ### Recent Changes (v0.45.0)
 
-- **Virtual Network Bus (vnet)**: Central Ethernet frame routing layer. Device models (CYW43, W5500, SDDs) register as ports; frames routed between ports, TAP interface, and peer Bramble instances.
+- **Virtual Network Bus (vnet)**: Central Ethernet frame routing layer. Device models (CYW43, W5500, SDDs) register as ports; frames routed between ports, TAP interface, and peer Pico-emu instances.
 - **Single-Command Internet Bridge**: `-net` flag creates TAP + NAT in one step with auto-sudo. Works for both WiFi (CYW43) and Ethernet (W5500) firmware.
 - **W5500 Live Networking**: `-net-live` connects W5500 socket commands to real host TCP/UDP sockets. OPEN/CONNECT/LISTEN/SEND/RECV/CLOSE all operate on real `AF_INET` sockets.
 - **Software-Defined Devices (SDD)**: `-sdd type[:opts]` framework for pluggable virtual peripherals with auto-attach to I2C/SPI/vnet. Reference implementation: TMP102-compatible thermometer.
-- **Wire Ethernet Relay**: `WIRE_MSG_ETH_FRAME` (0x04) extends the wire protocol with length-prefixed Ethernet frame relay between Bramble instances. CLI: `-wire-eth <path>`.
+- **Wire Ethernet Relay**: `WIRE_MSG_ETH_FRAME` (0x04) extends the wire protocol with length-prefixed Ethernet frame relay between Pico-emu instances. CLI: `-wire-eth <path>`.
 - **Multi-Instance Mesh**: `-net-peer <path>` creates vnet peer connections over Unix sockets for Ethernet-level bridging between instances.
 - **19 new tests**: vnet (6), SDD (6), W5500 live (5), wire ETH (2).
 
@@ -353,7 +353,7 @@ on M0+. The original roadmap incorrectly listed these.
 - Register read/write (R0-R15 + xPSR), memory read/write
 - 16 software/hardware breakpoints, single-step, continue, vCont
 - Ctrl-C interrupt, detach, kill, thread queries
-- Usage: `./bramble firmware.uf2 -gdb` then `target remote :3333`
+- Usage: `./picoemu firmware.uf2 -gdb` then `target remote :3333`
 
 ### 4.6 SIO Interpolators (0xD0000080-0xD00000FF) [COMPLETE]
 
@@ -466,7 +466,7 @@ on M0+. The original roadmap incorrectly listed these.
 
 - Dormant/sleep mode: `XOSC_DORMANT` `ROSC_DORMANT` `0x40024008` `0x4006000C` write `DORMANT` enters `is_wfi` `WFI` `corepool_wake_cores` on interrupt, `clocks.c:231` handles `DORMANT` as `WFI` for WASM cooperative stepping
 - Double-precision ROM functions `SF/SD` `rom.c:226` `soft_float_table` `soft_double_table` `0x0400` `0x0440` `rom_table_lookup('SF'/'SD')` tested via `pio_test` `usb_test` `littleOS` `SF/SD` tables via `rom.c` `memcpy` etc, WASM same sources verified `388` tests
-- DMA pacing timers: `dma.c` `CTRL_TRIG` `EN` `CHAIN_TO` with `timer_tick(1)` pacing via `CTRL` `SNIFF` and `50000000` `dma_step` in `membus` `512` `WASM` `bramble_step` `timer_tick(1024)` cooperative
+- DMA pacing timers: `dma.c` `CTRL_TRIG` `EN` `CHAIN_TO` with `timer_tick(1)` pacing via `CTRL` `SNIFF` and `50000000` `dma_step` in `membus` `512` `WASM` `picoemu_step` `timer_tick(1024)` cooperative
 
 ---
 
@@ -498,7 +498,7 @@ on M0+. The original roadmap incorrectly listed these.
 
 ### 6.4 Multi-Instance Wire Protocol [COMPLETE]
 
-- `-wire-uart0 <path>` / `-wire-uart1 <path>`: Wire UART between Bramble instances
+- `-wire-uart0 <path>` / `-wire-uart1 <path>`: Wire UART between Pico-emu instances
 - `-wire-gpio <path>`: Wire GPIO pin state between instances
 - Unix domain socket IPC; first instance creates, second connects
 - UART TX on one instance delivered as UART RX on the other
@@ -539,7 +539,7 @@ on M0+. The original roadmap incorrectly listed these.
 
 ### 6.9 Future: Device Plugins [COMPLETE - WASM]
 
-- Community `bme280.c` `w5500.c` `cyw43.c` `sdd.c` `sdd_thermo.c` `vnet.c` all compiled to WASM `web/bramble.wasm.wasm` `156K`, `spi_test`/`i2c_test` `0x4003C000` `0x40044000` and `bme280` `w5500` `cyw43` via `spi_attach_device`/`i2c_attach_device` `sdd` `TMP102` `0x48` verified `web/examples/` `Playwright` `PASS`
+- Community `bme280.c` `w5500.c` `cyw43.c` `sdd.c` `sdd_thermo.c` `vnet.c` all compiled to WASM `web/picoemu.wasm.wasm` `156K`, `spi_test`/`i2c_test` `0x4003C000` `0x40044000` and `bme280` `w5500` `cyw43` via `spi_attach_device`/`i2c_attach_device` `sdd` `TMP102` `0x48` verified `web/examples/` `Playwright` `PASS`
 
 ---
 
@@ -608,8 +608,8 @@ on M0+. The original roadmap incorrectly listed these.
 
 ### 9.1 Emscripten Build [COMPLETE]
 
-- `build_wasm.sh` `-O3 -msimd128` `WASM=1 ALLOW_MEMORY_GROWTH=1 MODULARIZE=1 EXPORT_NAME=BrambleModule EXPORT_ES6=1 ENVIRONMENT='web,node'` `web/bramble.wasm.js` 64K + `web/bramble.wasm.wasm` 156K
-- `src/bramble_wasm.c` replaces `main.c` CLI, exports `bramble_init/load/step` etc, `picobin_scan` for RV32, `putchar` intercept `uart_tx_buf[4096]`, stubs for `fuse_mount`/`corepool`/`tapif`/`netbridge`/`wire`
+- `build_wasm.sh` `-O3 -msimd128` `WASM=1 ALLOW_MEMORY_GROWTH=1 MODULARIZE=1 EXPORT_NAME=PicoemuModule EXPORT_ES6=1 ENVIRONMENT='web,node'` `web/picoemu.wasm.js` 64K + `web/picoemu.wasm.wasm` 156K
+- `src/picoemu_wasm.c` replaces `main.c` CLI, exports `picoemu_init/load/step` etc, `picobin_scan` for RV32, `putchar` intercept `uart_tx_buf[4096]`, stubs for `fuse_mount`/`corepool`/`tapif`/`netbridge`/`wire`
 
 ### 9.2 Browser UI [COMPLETE]
 

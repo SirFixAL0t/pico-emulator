@@ -28,8 +28,8 @@
  *   ACMD41 (SD_SEND_OP_COND)  - Initialize card
  *
  * Usage:
- *   ./bramble firmware.uf2 -sdcard sd.img
- *   ./bramble firmware.uf2 -sdcard sd.img -sdcard-spi 0
+ *   ./picoemu firmware.uf2 -sdcard sd.img
+ *   ./picoemu firmware.uf2 -sdcard sd.img -sdcard-spi 0
  * ======================================================================== */
 
 #define SD_BLOCK_SIZE       512

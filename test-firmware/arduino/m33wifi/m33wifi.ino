@@ -15,7 +15,7 @@ void setup() {
     Serial1.print(" rssi="); Serial1.println(WiFi.RSSI(i));
   }
   p("JOIN...\n");
-  int st = WiFi.begin("BrambleNet", "testpassword");
+  int st = WiFi.begin("Pico-emuNet", "testpassword");
   (void)st;
   delay(3000);
   Serial1.print("STATUS=");
