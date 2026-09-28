@@ -17,7 +17,7 @@ monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs
 
 ## Current Status: v0.50.0
 
-  426/426 tests passing (zero warnings). **RP2040**: Boots littleOS shell (UART), TinyUSB CDC `hello_usb`, MicroPython REPL (USB CDC), all peripheral self-tests, `hello_world`/`gpio`/`timer`/`interrupt`/`name_prompt`. **RP2350 RISC-V**: Complete Hazard3 emulation with Zba, Zbb, Zbs, Zcb, Zcmp, and Zbkb extensions; boots littleOS to interactive shell (`health` OK). **RP2350 ARM**: Cortex-M33 mode (`-arch m33`) boots littleOS to shell with SageLang eval (`print(6*7)` = `42`, floats, VFP+DCP), supervisor health nominal. **Tri-architecture**: `-arch m0+` / `-arch m33` / `-arch rv32` with automatic firmware detection via UF2 family ID and picobin IMAGE_DEF blocks. **Networking**: Virtual network bus with TAP bridge, multi-instance Ethernet mesh, W5500 live sockets (via `web/net_proxy.py`), W5500 MACRAW socket-0 gateway path (one shared vnet bus for WiFi + Ethernet), and software-defined devices. **Wired Ethernet**: `pico-eth`/`pico-eth2` board (WIZnet W5500-EVB-Pico/Pico2 on SPI0, CS17/RST20/INT21) + in-tree `eth_dhcp`/`eth_http` bare-metal guests (full DORA + ARP→SYN→GET→200→FIN on all three cores, `dhcp_peer_test.py`/`http_peer_test.py`) + Arduino-CLI `Wiznet5500lwIP` DHCP prove-out (M0+/M33 in-tree DORA green via live peer; Arduino E2E post-OFFER stall is guest-side RX pump, under test — see CHANGELOG). **Bluetooth**: internal HCI responder + loopback GATT (`wifi_ble_adv_rv32`/`wifi_ble_gatt_rv32` → `GATT-DONE`, sweep-locked) plus HCI-forward to Bumble/RootCanal/physical via `web/hci_bridge.py`; in-tree ARM `ble_adv` guests (M0+/M33) reach `ARM BLE LISTEN` (sweep-locked, like RV32).
+  426/426 tests passing (zero warnings). **RP2040**: Boots littleOS shell (UART), TinyUSB CDC `hello_usb`, MicroPython REPL (USB CDC), all peripheral self-tests, `hello_world`/`gpio`/`timer`/`interrupt`/`name_prompt`. **RP2350 RISC-V**: Complete Hazard3 emulation with Zba, Zbb, Zbs, Zcb, Zcmp, and Zbkb extensions; boots littleOS to interactive shell (`health` OK). **RP2350 ARM**: Cortex-M33 mode (`-arch m33`) boots littleOS to shell with SageLang eval (`print(6*7)` = `42`, floats, VFP+DCP), supervisor health nominal. **Tri-architecture**: `-arch m0+` / `-arch m33` / `-arch rv32` with automatic firmware detection via UF2 family ID and picobin IMAGE_DEF blocks. **Networking**: Virtual network bus with TAP bridge, multi-instance Ethernet mesh, W5500/W6300 live sockets (via `web/net_proxy.py`), W5500/W6300 MACRAW socket-0 gateway path (one shared vnet bus for WiFi + Ethernet), and software-defined devices. **Wired Ethernet**: `pico-eth`/`pico-eth2` board (WIZnet W5500-EVB-Pico/Pico2 on SPI0, CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` board (WIZnet W6300-EVB-Pico/Pico2 on SPI0 QSPI-single, CS16/RST22/INT15) + in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` bare-metal guests (full DORA + ARP→SYN→GET→200→FIN on all three cores, `dhcp_peer_test.py`/`http_peer_test.py`) + Arduino-CLI `Wiznet5500lwIP` DHCP prove-out (M0+/M33 in-tree DORA green via live peer; Arduino E2E post-OFFER stall is guest-side RX pump, under test — see CHANGELOG). **Bluetooth**: internal HCI responder + loopback GATT (`wifi_ble_adv_rv32`/`wifi_ble_gatt_rv32` → `GATT-DONE`, sweep-locked) plus HCI-forward to Bumble/RootCanal/physical via `web/hci_bridge.py`; in-tree ARM `ble_adv` guests (M0+/M33) reach `ARM BLE LISTEN` (sweep-locked, like RV32).
 
 ### Coverage
 
@@ -36,7 +36,7 @@ monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs
 | Flash | Write-through + FUSE | `-flash <path>` with sync; `-mount <dir>` for live host access (thread-safe) |
 | Storage | SD card + eMMC | SPI-attached file-backed block devices |
 | WiFi | CYW43 (Pico W) | gSPI-over-PIO, TAP bridge with auto IP/NAT (`-wifi`, `-tap`) |
-| Virtual Network | VNet bus | Central Ethernet frame router, TAP/NAT bridge (`-net`), peer mesh (`-net-peer`), W5500 live sockets (`-net-live`) |
+| Virtual Network | VNet bus | Central Ethernet frame router, TAP/NAT bridge (`-net`), peer mesh (`-net-peer`), W5500 live sockets (`-net-live`), W6300 live sockets (`-net-live6300`) |
 | Multi-Device | Wire + SDD | Wire UART/GPIO/Ethernet between instances, pluggable software-defined devices (`-sdd`) |
 | Performance | ICache + JIT | 64K decoded cache by default, optional hot-block JIT (`-jit`) |
 | Privilege | Auto-sudo | `-tap`, `-net`, `-mount` auto-escalate via sudo when needed |
@@ -306,6 +306,9 @@ Pico-emu now supports flexible debug output modes:
 # W5500 live networking (real host TCP/UDP sockets)
 ./picoemu w5500_firmware.uf2 -net -net-live -stdin
 
+# W6300 live networking (real host TCP/UDP sockets)
+./picoemu w6300_firmware.uf2 -net -net-live6300 -stdin
+
 # pico-eth board (WIZnet W5500-EVB-Pico, RP2040) /
 # pico-eth2 board (WIZnet W5500-EVB-Pico2, RP2350): W5500 on SPI0 with real
 # board pins (CSn=GPIO17, RSTn=GPIO20, INTn=GPIO21). Identical wiring on
@@ -314,6 +317,14 @@ Pico-emu now supports flexible debug output modes:
 ./picoemu w5500_firmware.uf2 -board pico-eth -board-live -stdin  # live
 ./picoemu w5500_firmware.uf2 -board pico-eth -board-spi 1 -stdin # on SPI1
 ./picoemu w5500_firmware.uf2 -board pico-eth2 -stdin           # Pico2 label
+
+# pico-w6300 board (WIZnet W6300-EVB-Pico, RP2040) /
+# pico-w6300-2 board (WIZnet W6300-EVB-Pico2, RP2350): W6300 QSPI-single
+# on SPI0 with real board pins (CSn=GPIO16, RSTn=GPIO22, INTn=GPIO15).
+# Off unless requested.
+./picoemu w6300_firmware.uf2 -board pico-w6300 -stdin            # stub
+./picoemu w6300_firmware.uf2 -board pico-w6300 -board6300-live -stdin  # live
+./picoemu w6300_firmware.uf2 -board pico-w6300-2 -stdin          # Pico2 label
 
 # In-tree W5500 guests (no toolchain needed — UF2s ship in web/):
 # full DORA via the python peer (terminal 1 = guest, terminal 2 = peer):
@@ -326,6 +337,15 @@ python3 test-firmware/http_peer_test.py /tmp/eth.sock  # ALL HTTP CHECKS PASSED
 # Same DORA against the real Go gateway (needs openhw-studio-gateway running):
 ./picoemu web/eth_dhcp.uf2 -board pico-eth -net -net-peer /tmp/gw.sock
 python3 web/gateway_bridge.py --sock /tmp/gw.sock --room lab  # lease .2
+
+# In-tree W6300 guests (no toolchain needed — UF2s ship in web/):
+# full DORA via the python peer (terminal 1 = guest, terminal 2 = peer):
+./picoemu web/eth_dhcp6300.uf2 -board pico-w6300 -net-peer /tmp/eth.sock -clock 125
+python3 test-firmware/dhcp_peer_test.py /tmp/eth.sock  # ALL DHCP CHECKS PASSED
+# DORA + HTTP client (ARP -> SYN -> GET -> 200 hello-eth -> FIN):
+./picoemu web/eth_http6300.uf2 -board pico-w6300 -net-peer /tmp/eth.sock -clock 125
+python3 test-firmware/http_peer_test.py /tmp/eth.sock  # with eth_http6300_common arch table
+# M33: web/eth_dhcp6300_pico2.uf2 + -board pico-w6300-2; RV32: web/eth_dhcp6300_rv32.uf2 -arch rv32
 
 # Wire Ethernet frames between instances
 ./picoemu fw_sensor.uf2 -wire-eth /tmp/mesh.sock -stdin
@@ -452,6 +472,7 @@ Pico-emu/
 │   ├── fatfs.c         # FAT16 helpers for flash/FUSE
 │   ├── fuse_mount.c    # Optional FUSE mount integration
 │   ├── w5500.c         # W5500 Ethernet device model
+│   ├── w6300.c         # W6300 Ethernet device model (QSPI-single)
 │   ├── bme280.c        # BME280 sensor model
 │   ├── corepool.c      # Host-threaded execution + core allocation
 │   ├── cyw43.c         # CYW43 WiFi emulation
@@ -490,6 +511,7 @@ Pico-emu/
 │   ├── fatfs.h         # FAT filesystem helpers
 │   ├── fuse_mount.h    # FUSE mount definitions
 │   ├── w5500.h         # W5500 device definitions
+│   ├── w6300.h         # W6300 device definitions
 │   ├── bme280.h        # BME280 device definitions
 │   ├── corepool.h      # Core pool definitions
 │   ├── cyw43.h         # CYW43 WiFi definitions

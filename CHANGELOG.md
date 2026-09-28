@@ -1,5 +1,26 @@
 # Pico-emu RP2040/RP2350 Emulator - Changelog
 
+## [Unreleased] - 2026-09-28
+
+### Added - Full W6300 Ethernet support (QSPI-single model + pico-w6300 boards + guests)
+
+W6300 support at parity with the W5500 path: `src/w6300.c`/`include/w6300.h`
+register-level model (QSPI-single frame `opcode|addr16|dummy|data`, CIDR
+`0x61/0x00/0x11`, CHIP/NET/PHY lock groups with `0xCE/0x3A/0x53` unlock magic,
+PHYSR opposite-polarity link bits, `Sn_IRCLR` W1C, 4KB TX/RX per socket,
+TCP4/UDP4/MACRAW + TCP6/UDP6/TCPD/UDPD modes, `CLOSE=0x10`); `-board
+pico-w6300`/`pico-w6300-2` (W6300-EVB-Pico/Pico2 wiring CSn=16/RSTn=22/INTn=15,
+shared SPI slot rules, `-board6300-live`, `-net-live6300`, `-no-eth-gw`
+isolates both chips); MACRAW socket 0 on the shared vnet bus (same
+gateway/room/DHCP as WiFi + W5500); live host sockets + WASM proxy pump
+(chip-agnostic framing, `picoemu_board_eth6300`/`picoemu_net_enable6300`/
+`picoemu_w6300_{push_rx,push_status,pop_tx,tx_len,gw_enable}` exports);
+in-tree `eth_dhcp6300` (full DORA live on M0+/M33/RV32) + `eth_http6300`
+(DORA+ARP→SYN→GET→200→FIN→`ETH HTTP-DONE` live on M0+/M33, RV32
+sweep-locked) guests + `ethdhcp6300` Arduino sketch (vendored, build pending
+the W6300 Arduino lib); 12 new unit tests; sweep 68/68; WASM green
+(`test-wasm.js` + gateway E2E + `board_eth6300` MACRAW-OK probe).
+
 ## [Unreleased] - 2026-09-23
 
 ### Fixed - RV32 wifi_join root cause (RV clocks shadow routing, sweep 62/62)
