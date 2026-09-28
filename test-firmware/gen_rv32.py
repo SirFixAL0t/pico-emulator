@@ -2046,7 +2046,7 @@ DEMOS.append(d)
 # then loopback GATT against our own virtual link: LE_Create_Connection to
 # our own MAC (connect completes locally), ATT Exchange-MTU, Read device
 # name (0x0011), Write + Read-back scratch (0x0012). Markers GATT-CONN,
-# GATT-MTU-OK, GATT-READ-OK (Pico-emu), GATT-WRITE-OK, GATT-DONE.
+# GATT-MTU-OK, GATT-READ-OK (device-name[0]=='B'), GATT-WRITE-OK, GATT-DONE.
 # Sweep looks for GATT-DONE (no peer needed; fully self-contained).
 d = Demo("ble_gatt_rv32", "BLE GATT Test")
 d.pstr("RV32 BLE Starting (BT shared bus via PIO2)\n")
@@ -2234,7 +2234,7 @@ d.emit("lbu t0, 0(s2)")
 d.li("t1", 0x0B)
 d.emit("bne t0, t1, ga_gatt_fail")
 d.emit("lbu t0, 1(s2)")
-d.li("t1", 0x42)  # 'B' of Pico-emu
+d.li("t1", 0x42)  # device-name[0] ('B'; DB value is "Pico-emu")
 d.emit("bne t0, t1, ga_gatt_fail")
 d.pstr("RV32 BLE GATT-READ-OK\n")
 # ATT Write Request handle 0x0012 <- "Hi", then Read back.
