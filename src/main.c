@@ -533,8 +533,9 @@ int main(int argc, char **argv) {
     int w6300_live = 0;
     int board_eth = 0;        /* -board pico-eth requested */
     int board_w6300 = 0;      /* -board pico-w6300 requested */
-    int board_eth_spi = 0;    /* SPI bus for the pico-eth board */
-    int board_eth_live = 0;   /* live host sockets for the board */
+    int board_eth_spi = 0;    /* SPI bus for the eth boards */
+    int board_eth_live = 0;   /* live host sockets for the w5500 board */
+    int board_w6300_live = 0; /* live host sockets for the w6300 board */
     int sdd_count = 0;
 
     for (int i = 2; i < argc; i++) {
@@ -745,7 +746,7 @@ int main(int argc, char **argv) {
             board_eth_live = 1;
             board_eth = 1;  /* implies the board */
         } else if (strcmp(argv[i], "-board6300-live") == 0) {
-            board_eth_live = 1;
+            board_w6300_live = 1;
             board_w6300 = 1;  /* implies the w6300 board */
         } else if (strcmp(argv[i], "-no-eth-gw") == 0) {
             w5500_gw_enable_set(0);  /* isolate eth from gateway (debug) */
@@ -1154,9 +1155,9 @@ skip_fuse:
 
     /* pico-w6300 board (W6300-EVB-Pico): same slot rules as pico-eth. */
     if (board_w6300) {
-        w6300_board_attach(board_eth_spi, board_eth_live || w6300_live);
+        w6300_board_attach(board_eth_spi, board_w6300_live || w6300_live);
         fprintf(stderr, "[Init] pico-w6300 board on SPI%d%s\n", board_eth_spi,
-                (board_eth_live || w6300_live) ? " (live)" : " (stub)");
+                (board_w6300_live || w6300_live) ? " (live)" : " (stub)");
     }
 
     /* Software-Defined Devices: second pass to create from -sdd arguments */

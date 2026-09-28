@@ -34,6 +34,16 @@ from dhcp_peer_test import Peer, dhcp_reply, parse_dhcp, SRV_MAC, SRV_IP, LEASE_
 from eth_http_common import (HTTP_ARCHES, SSEQ, HTTP_PAYLOAD,
                              parse_tcp_from_guest, is_arp_who_has,
                              arp_reply, tcp_seg_from_srv, ip_pkt_from_srv)
+try:
+    # W6300 guests use distinct MACs/sports (eth_http6300_common); merge
+    # so one peer serves both chips (SSEQ/payload/parsers are identical).
+    # Keys are namespaced: both tables use m0/m33/rv32, so a flat merge
+    # would let the W6300 entries clobber the W5500 ones.
+    import eth_http6300_common as _H6300
+    HTTP_ARCHES = {**{f"w5500-{k}": v for k, v in HTTP_ARCHES.items()},
+                   **{f"w6300-{k}": v for k, v in _H6300.HTTP_ARCHES.items()}}
+except ImportError:
+    pass
 
 SOCK = sys.argv[1] if len(sys.argv) > 1 else "/tmp/httptest.sock"
 

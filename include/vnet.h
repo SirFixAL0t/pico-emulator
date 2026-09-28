@@ -47,6 +47,7 @@
 typedef enum {
     VNET_PORT_CYW43,
     VNET_PORT_W5500,
+    VNET_PORT_W6300,
     VNET_PORT_SDD,
     VNET_PORT_CUSTOM,
 } vnet_port_type_t;

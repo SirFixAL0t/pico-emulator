@@ -4,7 +4,7 @@
 //        [--steps 2000000] [--timeout 30] [--cores 2] [--wifi]
 //        [--gateway ws://localhost:5090/api/network-gateway] [--room myroom]
 //        [--ble-hci ws://localhost:5090/api/ble-gateway]
-//        [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live]
+//        [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live|--board6300-live]
 //        [--net-w5500 ws://localhost:8765/w5500]  (live W5500/W6300 proxy pump)
 import fs from 'fs';
 import path from 'path';
@@ -22,7 +22,7 @@ const opt = (name, def) => {
 };
 const file = args.find((a) => !a.startsWith('--'));
 if (!file) {
-  console.error('Usage: picoemu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125] [--steps 2000000] [--timeout 30] [--cores 2] [--wifi] [--gateway URL] [--room ID] [--ble-hci URL] [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live] [--net-w5500 URL]');
+  console.error('Usage: picoemu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125] [--steps 2000000] [--timeout 30] [--cores 2] [--wifi] [--gateway URL] [--room ID] [--ble-hci URL] [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live|--board6300-live] [--net-w5500 URL]');
   process.exit(2);
 }
 const u8 = new Uint8Array(fs.readFileSync(file));
@@ -72,7 +72,7 @@ mod._picoemu_reset();
     if (board !== 'pico-eth' && board !== 'pico-eth2' && !is6300) { console.error(`picoemu: unknown board '${board}' (use pico-eth|pico-eth2|pico-w6300|pico-w6300-2)`); process.exit(2); }
     let spi = parseInt(opt('--board-spi', '0'), 10);
     if (!(spi === 0 || spi === 1)) { console.error('picoemu: --board-spi must be 0 or 1'); process.exit(2); }
-    const live = args.includes('--board-live') ? 1 : 0;
+    const live = (args.includes('--board-live') || args.includes('--board6300-live')) ? 1 : 0;
     try {
       if (is6300) mod._picoemu_board_eth6300(1, live, spi);
       else mod._picoemu_board_eth(1, live, spi);

@@ -195,7 +195,7 @@ int w6300_macraw_attach(w6300_t *dev, int sock) {
     w6300_macraw_devs[idx].sock = sock;
     memcpy(w6300_macraw_devs[idx].mac, mac, 6);
     w6300_macraw_ndevs++;
-    int port = vnet_register_port("w6300-macraw", VNET_PORT_W5500, mac,
+    int port = vnet_register_port("w6300-macraw", VNET_PORT_W6300, mac,
                                   w6300_macraw_vnet_rx, (void *)(intptr_t)idx);
     dev->vnet_port = port;
     /* WASM note: picoemu_wasm.c provides w6300_macraw_vnet_mark() to set
