@@ -2,6 +2,27 @@
 
 ## [Unreleased] - 2026-09-29
 
+### Added - W6300 live-path hardening (dual upgrade, accept, retry, TCNTR)
+
+Closes the real remaining offload gaps found by auditing the live paths
+(not just the register surface): dual-stack TCPD/UDPD sockets upgrade
+AF_INET→AF_INET6 on CONNECT/CONNECT6/LISTEN/SEND when the destination
+is v6 (Linux has no dual-family socket; close + recreate, guest flow
+unchanged; wrong-family dial guarded → TIMEOUT); v6 LISTEN accept uses
+sockaddr_storage (old sockaddr_in truncated v6 peers) and mirrors v6
+peers into DIP6R/DPORTR; SYNSENT retry engine actually ticks in poll()
+(RCR attempts × RTR×100us → TIMEOUT + CLOSED, RCR=0 = forever,
+offline SYNSENT included); TCNTR advances once per poll(); IPRAW4/6
+sockets receive in poll(); Sn_TTLR/Sn_TOSR apply at dial time
+(IP_TTL/IP_TOS, IPV6_UNICAST_HOPS/IPV6_TCLASS); WASM LISTEN6 framing
+([0x4C,sock,lo,hi,'6']) + net_proxy.py AF_INET6 listen; 5 new unit
+tests incl. live ::1 TCPD-CONNECT (fd family + ESTABLISHED + ESR TCPM)
+and live UDP6 loopback echo (22B header + DIP6R mirror); 466/466 tests;
+sweep 70/70; WASM + threads rebuilt, test-wasm/ble/gateway PASS.
+RV32 stays sweep-locked via in-tree guests (IPv4 DORA/HTTP paths
+untouched); no guest in tree exercises v6 live paths (Arduino
+W6300lwIP is IPv4-only), so v6 is loopback-verified, documented here.
+
 ### Added - W6300 SEND_MAC (0x21) shares SEND datapath
 
 SEND_MAC (UDP-only "send without ARP" per ioLibrary) shares the SEND

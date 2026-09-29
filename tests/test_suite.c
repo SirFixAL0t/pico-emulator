@@ -18,6 +18,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/un.h>
 #include <poll.h>
 #include <errno.h>
@@ -7000,8 +7002,230 @@ TEST(test_w6300_sn_ir_w1c_via_irclr) {
     PASS();
 }
 
-TEST(test_w6300_macraw_gateway_path) {
-    reset_cpu();
+TEST(test_w6300_dual_udp_send_upgrades_fd) {
+    /* Dual-stack UDPD SEND to a v6 destination upgrades an AF_INET fd
+     * to AF_INET6 (offline: SO_DOMAIN check skipped — assert no crash
+     * and SENDOK; live-family assert covered by loopback test below). */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_UDPD);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_UDP, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "UDPD OPEN should reach UDP");
+    uint8_t dip6[16] = {0x20,0x01,0x0D,0xB8,0,0,0,0,0,0,0,0,0,0,0,0x09};
+    for (int i = 0; i < 16; i++)
+        test_w6300_reg_write(&dev, 1, W6300_Sn_DIP6R0 + i, dip6[i]);
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(2, 1));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    for (int i = 0; i < 8; i++) w6300_spi_xfer(&dev, (uint8_t)(0x40 + i));
+    w6300_spi_cs(&dev, 0);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0 + 1, 8);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK,
+                "SENDOK after dual UDP SEND to v6 dest");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_CR),
+              "CR auto-clears after dual SEND");
+    PASS();
+}
+
+TEST(test_w6300_synsent_retry_timeout) {
+    /* SYNSENT with RCR=1/RTR=min exhausts the budget via poll ticks:
+     * TIMEOUT + CLOSED. RCR=0 never times out. Offline (no live). */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    ASSERT_EQ(W6300_SOCK_ESTABLISHED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "offline CONNECT reaches ESTABLISHED");
+    /* Force SYNSENT + tiny budget directly (offline engine path:
+     * no host fd — poll()'s SYNSENT branch ticks the budget anyway). */
+    dev.sockets[0].regs[W6300_Sn_SR] = W6300_SOCK_SYNSENT;
+    dev.sockets[0].regs[W6300_Sn_RTR0] = 0x00;
+    dev.sockets[0].regs[W6300_Sn_RTR0 + 1] = 0x0A; /* RTR=10 (100us) -> 1 tick/attempt */
+    dev.sockets[0].regs[W6300_Sn_RCR] = 0x02;      /* 2 attempts -> 2 ticks */
+    dev.live = 1;
+    dev.sockets[0].retry_ticks = 0;
+    extern void w6300_poll(w6300_t *dev);
+    w6300_poll(&dev);
+    ASSERT_EQ(W6300_SOCK_SYNSENT, (int)dev.sockets[0].regs[W6300_Sn_SR],
+              "1 tick of 2 should stay SYNSENT");
+    w6300_poll(&dev);
+    ASSERT_EQ(W6300_SOCK_CLOSED, (int)dev.sockets[0].regs[W6300_Sn_SR],
+              "budget exhausted -> CLOSED");
+    ASSERT_TRUE(dev.sockets[0].regs[W6300_Sn_IR] & W6300_IR_TIMEOUT,
+                "budget exhausted -> TIMEOUT");
+    /* RCR=0 means retry forever: 100 ticks must not time out. */
+    dev.sockets[0].regs[W6300_Sn_SR] = W6300_SOCK_SYNSENT;
+    dev.sockets[0].regs[W6300_Sn_RCR] = 0x00;
+    dev.sockets[0].regs[W6300_Sn_IR] = 0x00;
+    dev.sockets[0].retry_ticks = 0;
+    for (int t = 0; t < 100; t++) w6300_poll(&dev);
+    ASSERT_EQ(W6300_SOCK_SYNSENT, (int)dev.sockets[0].regs[W6300_Sn_SR],
+              "RCR=0 must retry forever");
+    dev.live = 0;
+    PASS();
+}
+
+TEST(test_w6300_tcntr_ticks_and_clears) {
+    /* TCNTR advances once per poll() and TCNTRCLR zeroes it. */
+    w6300_t dev;
+    w6300_init(&dev);
+    dev.live = 1;
+    extern void w6300_poll(w6300_t *dev);
+    w6300_poll(&dev);
+    w6300_poll(&dev);
+    w6300_poll(&dev);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_TCNTR0),
+              "TCNTR hi after 3 ticks");
+    ASSERT_EQ(0x03, (int)test_w6300_reg_read(&dev, 0, W6300_TCNTR0 + 1),
+              "TCNTR lo should be 3 after 3 polls");
+    test_w6300_reg_write(&dev, 0, W6300_TCNTRCLR, 0xFF);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_TCNTR0 + 1),
+              "TCNTRCLR should zero TCNTR");
+    dev.live = 0;
+    PASS();
+}
+
+TEST(test_w6300_live_dual_tcp6_loopback) {
+    /* Live dual-stack TCPD CONNECT to ::1 upgrades the fd to AF_INET6
+     * and completes (loopback server). Requires IPv6 loopback. */
+    int srv = socket(AF_INET6, SOCK_STREAM, 0);
+    if (srv < 0) PASS();  /* no IPv6 stack: skip */
+    int opt = 1;
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    struct sockaddr_in6 sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin6_family = AF_INET6;
+    sa.sin6_addr = in6addr_loopback;
+    sa.sin6_port = htons(0);
+    if (bind(srv, (struct sockaddr *)&sa, sizeof(sa)) != 0 || listen(srv, 1) != 0) {
+        close(srv);
+        PASS();  /* cannot bind v6 loopback: skip */
+    }
+    socklen_t sl = sizeof(sa);
+    getsockname(srv, (struct sockaddr *)&sa, &sl);
+    uint16_t port = ntohs(sa.sin6_port);
+    w6300_t dev;
+    w6300_init(&dev);
+    w6300_set_live(&dev, 1);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCPD);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    /* OPEN created AF_INET; CONNECT with ::1 DIP6R must upgrade. */
+    uint8_t dip6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0x01};
+    for (int i = 0; i < 16; i++)
+        test_w6300_reg_write(&dev, 1, W6300_Sn_DIP6R0 + i, dip6[i]);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_DPORTR0, (port >> 8) & 0xFF);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_DPORTR0 + 1, port & 0xFF);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    int sr = test_w6300_reg_read(&dev, 1, W6300_Sn_SR);
+    ASSERT_TRUE(sr == W6300_SOCK_ESTABLISHED || sr == W6300_SOCK_SYNSENT,
+                "dual CONNECT to ::1 should dial (ESTABLISHED/SYNSENT)");
+    {
+        int fam = 0;
+        socklen_t fl = sizeof(fam);
+        getsockopt(dev.sockets[0].host_fd, SOL_SOCKET, SO_DOMAIN, &fam, &fl);
+        ASSERT_EQ(AF_INET6, fam, "dual fd should upgrade to AF_INET6");
+    }
+    /* Pump poll until ESTABLISHED (loopback connects fast). */
+    extern void w6300_poll(w6300_t *dev);
+    for (int t = 0; t < 200 &&
+         dev.sockets[0].regs[W6300_Sn_SR] == W6300_SOCK_SYNSENT; t++)
+        w6300_poll(&dev);
+    ASSERT_EQ(W6300_SOCK_ESTABLISHED, (int)dev.sockets[0].regs[W6300_Sn_SR],
+              "loopback CONNECT should complete");
+    ASSERT_TRUE(dev.sockets[0].regs[W6300_Sn_ESR] & W6300_ESR_TCPM,
+                "ESR should show TCPM after v6 connect");
+    int cfd = accept(srv, NULL, NULL);
+    if (cfd >= 0) close(cfd);
+    if (dev.sockets[0].host_fd >= 0) close(dev.sockets[0].host_fd);
+    dev.sockets[0].host_fd = -1;
+    dev.live = 0;
+    close(srv);
+    PASS();
+}
+
+TEST(test_w6300_live_udp6_loopback_echo) {
+    /* Live UDP6 pair: guest socket sends to a bound ::1 peer and the
+     * reply arrives with a 22B v6 header + DIP6R mirror. */
+    int peer = socket(AF_INET6, SOCK_DGRAM, 0);
+    if (peer < 0) PASS();  /* no IPv6 stack: skip */
+    struct sockaddr_in6 pa;
+    memset(&pa, 0, sizeof(pa));
+    pa.sin6_family = AF_INET6;
+    pa.sin6_addr = in6addr_loopback;
+    pa.sin6_port = htons(0);
+    if (bind(peer, (struct sockaddr *)&pa, sizeof(pa)) != 0) {
+        close(peer);
+        PASS();
+    }
+    socklen_t pl = sizeof(pa);
+    getsockname(peer, (struct sockaddr *)&pa, &pl);
+    uint16_t peer_port = ntohs(pa.sin6_port);
+    int flags = fcntl(peer, F_GETFL, 0);
+    if (flags != -1) fcntl(peer, F_SETFL, flags | O_NONBLOCK);
+    w6300_t dev;
+    w6300_init(&dev);
+    w6300_set_live(&dev, 1);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_UDP6);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_PORTR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_PORTR0 + 1, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_TRUE(dev.sockets[0].host_fd >= 0, "UDP6 OPEN should create host fd");
+    uint8_t dip6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0x01};
+    for (int i = 0; i < 16; i++)
+        test_w6300_reg_write(&dev, 1, W6300_Sn_DIP6R0 + i, dip6[i]);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_DPORTR0, (peer_port >> 8) & 0xFF);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_DPORTR0 + 1, peer_port & 0xFF);
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(2, 1));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x48); w6300_spi_xfer(&dev, 0x69); /* "Hi" */
+    w6300_spi_cs(&dev, 0);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0 + 1, 2);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND6);
+    ASSERT_TRUE(dev.sockets[0].regs[W6300_Sn_IR] & W6300_IR_SENDOK,
+                "SENDOK after UDP6 SEND6");
+    /* Peer should receive "Hi". */
+    uint8_t pbuf[64];
+    struct sockaddr_in6 src6;
+    socklen_t sl6 = sizeof(src6);
+    int got = 0;
+    for (int t = 0; t < 200 && !got; t++) {
+        ssize_t n = recvfrom(peer, pbuf, sizeof(pbuf), 0,
+                             (struct sockaddr *)&src6, &sl6);
+        if (n == 2 && pbuf[0] == 0x48 && pbuf[1] == 0x69) got = 1;
+        else usleep(5000);
+    }
+    ASSERT_TRUE(got, "peer should receive UDP6 payload");
+    /* Reply; guest poll should surface 22B header + payload + mirror. */
+    sendto(peer, pbuf, 2, 0, (struct sockaddr *)&src6, sl6);
+    extern void w6300_poll(w6300_t *dev);
+    int seen = 0;
+    for (int t = 0; t < 200 && !seen; t++) {
+        w6300_poll(&dev);
+        if (dev.sockets[0].regs[W6300_Sn_IR] & W6300_IR_RECV) seen = 1;
+        else usleep(5000);
+    }
+    ASSERT_TRUE(seen, "guest should see RECV after UDP6 reply");
+    uint16_t rsr = ((uint16_t)dev.sockets[0].regs[W6300_Sn_RX_RSR0] << 8) |
+                   dev.sockets[0].regs[W6300_Sn_RX_RSR0 + 1];
+    ASSERT_EQ(24, (int)rsr, "UDP6 RX should be 22B header + 2B payload");
+    ASSERT_EQ(0x00, (int)dev.sockets[0].rx_buf[0], "DIP6R mirror byte0 (::1)");
+    ASSERT_EQ(0x01, (int)dev.sockets[0].rx_buf[15], "DIP6R mirror byte15 (::1)");
+    if (dev.sockets[0].host_fd >= 0) close(dev.sockets[0].host_fd);
+    dev.sockets[0].host_fd = -1;
+    dev.live = 0;
+    close(peer);
+    PASS();
+}
+
+TEST(test_w6300_macraw_gateway_path) {    reset_cpu();
     w6300_board_detach();
     vnet_init();
     w6300_t dev;
@@ -9210,6 +9434,11 @@ int main(void) {
     RUN_TEST(test_w6300_open_seeds_retry_and_clears_esr);
     RUN_TEST(test_w6300_connect6_esr);
     RUN_TEST(test_w6300_dual_connect_selects_family);
+    RUN_TEST(test_w6300_dual_udp_send_upgrades_fd);
+    RUN_TEST(test_w6300_synsent_retry_timeout);
+    RUN_TEST(test_w6300_tcntr_ticks_and_clears);
+    RUN_TEST(test_w6300_live_dual_tcp6_loopback);
+    RUN_TEST(test_w6300_live_udp6_loopback_echo);
     RUN_TEST(test_w6300_send6_sendok);
     RUN_TEST(test_w6300_send_keep_sendok);
     RUN_TEST(test_w6300_send_mac_sendok);

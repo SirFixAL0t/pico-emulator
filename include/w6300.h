@@ -322,6 +322,7 @@ typedef struct {
     uint8_t  tx_dirty_valid;
     int     host_fd;
     int     host_listen_fd;
+    uint16_t retry_ticks;   /* SYNSENT poll ticks since CONNECT (retry engine) */
 } w6300_socket_t;
 
 /* W6300 device state */

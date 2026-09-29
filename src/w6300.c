@@ -106,6 +106,76 @@ static void set_sock_nonblock(int fd) {
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+/* Socket family actually dialled on the host fd (set at OPEN, may be
+ * upgraded AF_INET->AF_INET6 by a dual-stack CONNECT/CONNECT6). Guests
+ * see only Sn_SR; this keeps native + WASM pump + poll agreeing. */
+static int w6300_sock_host_v6(w6300_socket_t *s) {
+    int fam = 0;
+    socklen_t sl = sizeof(fam);
+    if (s->host_fd >= 0 &&
+        getsockopt(s->host_fd, SOL_SOCKET, SO_DOMAIN, &fam, &sl) == 0)
+        return fam == AF_INET6;
+    if (s->host_listen_fd >= 0 &&
+        getsockopt(s->host_listen_fd, SOL_SOCKET, SO_DOMAIN, &fam, &sl) == 0)
+        return fam == AF_INET6;
+    return 0;
+}
+
+/* Re-create the host socket in a new family, preserving nonblocking
+ * mode. Used when a dual-stack (TCPD/UDPD, opened AF_INET by default)
+ * socket upgrades to IPv6 on CONNECT/CONNECT6 with a v6 destination.
+ * Returns 0 on success, -1 on failure (old fd already closed). */
+static int w6300_sock_recreate(int *fdp, int family, int type, int proto) {
+    int old = *fdp;
+    if (old >= 0) close(old);
+    *fdp = socket(family, type, proto);
+    if (*fdp < 0) return -1;
+    set_sock_nonblock(*fdp);
+    return 0;
+}
+
+/* Cross-check an IPv6 host fd we believe we own: getsockname must
+ * report AF_INET6 (guards fd-reuse / wrong-family regressions). */
+static int w6300_host_fd_is_v6(int fd) {
+    if (fd < 0) return 0;
+    struct sockaddr_storage ss;
+    socklen_t sl = sizeof(ss);
+    if (getsockname(fd, (struct sockaddr *)&ss, &sl) != 0) return 0;
+    return ss.ss_family == AF_INET6;
+}
+
+static void w6300_sock_apply_ttl_tos(w6300_socket_t *s) {
+    /* Sn_TTLR/Sn_TOSR apply at dial time (live). TTL 0 = default 64. */
+    if (s->host_fd < 0) return;
+    uint8_t ttl = s->regs[W6300_Sn_TTLR];
+    if (ttl == 0) ttl = 64;
+    int fam = 0;
+    socklen_t fl = sizeof(fam);
+    if (getsockopt(s->host_fd, SOL_SOCKET, SO_DOMAIN, &fam, &fl) != 0)
+        fam = AF_INET;
+    if (fam == AF_INET6) {
+        setsockopt(s->host_fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+                   &ttl, sizeof(ttl));
+        int tclass = s->regs[W6300_Sn_TOSR];
+        setsockopt(s->host_fd, IPPROTO_IPV6, IPV6_TCLASS,
+                   &tclass, sizeof(tclass));
+    } else {
+        setsockopt(s->host_fd, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));
+        int tos = s->regs[W6300_Sn_TOSR];
+        setsockopt(s->host_fd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+    }
+}
+
+/* Retry budget: Sn_RCR counts attempts, RTR is the per-attempt timeout
+ * (units of 100us). poll() is nonblocking, so the engine tracks poll
+ * ticks per socket; a SYNSENT socket whose ticks exceed RCR attempts
+ * (scaled: 1 tick ~= 1ms, attempt = RTR*100us) raises TIMEOUT + CLOSED
+ * exactly like silicon exhausting its ARP/TCP retransmits. RCR=0 means
+ * retry forever (ioLibrary: 0 = no limit); RTR=0 means the default 2s.
+ * Progress (writable/connected) clears the counter. */
+#define W6300_POLL_TICK_MS 1
+static void w6300_sock_retry_tick(w6300_t *dev, int sock);
+
 static void w6300_build_addr(w6300_socket_t *s, struct sockaddr_in *addr) {
     memset(addr, 0, sizeof(*addr));
     addr->sin_family = AF_INET;
@@ -341,6 +411,12 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         /* ESR is live transport state: stale values must not survive
          * across OPEN (ioLibrary: valid on TCP only, set at CONNECT). */
         s->regs[W6300_Sn_ESR] = 0x00;
+        s->retry_ticks = 0;
+        /* Pure-v6 modes always dial AF_INET6; pure-v4 stay AF_INET.
+         * Dual-stack TCPD/UDPD open AF_INET by default and upgrade to
+         * AF_INET6 on CONNECT/CONNECT6 with a v6 destination, or speak
+         * either family per-SEND for UDP. (Linux has no dual AF_INET
+         * socket: the upgrade closes + recreates the fd.) */
         if (w6300_mode_is_tcp(mode)) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_INIT;
             if (dev->live) {
@@ -351,6 +427,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
                     s->host_fd = socket(AF_INET, SOCK_STREAM, 0);
                 }
                 if (s->host_fd >= 0) set_sock_nonblock(s->host_fd);
+                w6300_sock_apply_ttl_tos(s);
             }
         } else if (w6300_mode_is_udp(mode)) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_UDP;
@@ -363,6 +440,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
                 }
                 if (s->host_fd >= 0) {
                     set_sock_nonblock(s->host_fd);
+                    w6300_sock_apply_ttl_tos(s);
                     uint16_t src_port = ((uint16_t)s->regs[W6300_Sn_PORTR0] << 8) |
                                         s->regs[W6300_Sn_PORTR0 + 1];
                     if (src_port > 0) {
@@ -429,10 +507,18 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
     case W6300_CMD_LISTEN:
         if (s->regs[W6300_Sn_SR] == W6300_SOCK_INIT) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_LISTEN;
+            /* Dual-stack TCPD LISTEN follows ioLibrary: v6 dest regs
+             * set => IPv6 server. Upgrade the AF_INET fd from OPEN. */
+            int listen_v6 = w6300_mode_is_v6(mode) ||
+                (w6300_mode_is_dual(mode) &&
+                 w6300_mode_is_tcp(mode) && w6300_sock_dest_is_v6(s));
             if (dev->live && s->host_fd >= 0) {
+                if (listen_v6 && !w6300_sock_host_v6(s)) {
+                    w6300_sock_recreate(&s->host_fd, AF_INET6, SOCK_STREAM, 0);
+                }
                 /* IPv6 LISTEN: the OPEN path created AF_INET6 for v6
                  * modes; bind ::/port the same way. */
-                if (w6300_mode_is_v6(mode)) {
+                if (listen_v6) {
                     struct sockaddr_in6 bind6;
                     memset(&bind6, 0, sizeof(bind6));
                     bind6.sin6_family = AF_INET6;
@@ -466,10 +552,21 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
 #ifdef __EMSCRIPTEN__
             if (dev->live) {
                 int wport = ((int)s->regs[W6300_Sn_PORTR0] << 8) | (int)s->regs[W6300_Sn_PORTR0 + 1];
-                uint8_t msg[4];
-                msg[0] = 0x4C; msg[1] = (uint8_t)(sock & 0xFF);
-                msg[2] = (uint8_t)(wport & 0xFF); msg[3] = (uint8_t)((wport >> 8) & 0xFF);
-                w6300_ws_tx_push(msg, 4);
+                if (listen_v6) {
+                    /* LISTEN6: [0x4C, sock, port_lo, port_hi, '6'] (5B).
+                     * v4 proxies parse the first 4 bytes and ignore the
+                     * flag; updated net_proxy.py binds AF_INET6. */
+                    uint8_t msg[5];
+                    msg[0] = 0x4C; msg[1] = (uint8_t)(sock & 0xFF);
+                    msg[2] = (uint8_t)(wport & 0xFF); msg[3] = (uint8_t)((wport >> 8) & 0xFF);
+                    msg[4] = 0x36; /* '6' */
+                    w6300_ws_tx_push(msg, 5);
+                } else {
+                    uint8_t msg[4];
+                    msg[0] = 0x4C; msg[1] = (uint8_t)(sock & 0xFF);
+                    msg[2] = (uint8_t)(wport & 0xFF); msg[3] = (uint8_t)((wport >> 8) & 0xFF);
+                    w6300_ws_tx_push(msg, 4);
+                }
             }
 #endif
         }
@@ -486,7 +583,36 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             w6300_sock_dest_is_v6(s))
             want_v6 = 1;
         if (s->regs[W6300_Sn_SR] == W6300_SOCK_INIT) {
+            s->retry_ticks = 0;
             if (dev->live && s->host_fd >= 0) {
+                /* Dual-stack upgrade: a TCPD/UDPD socket opened AF_INET
+                 * must become AF_INET6 before dialling a v6 address
+                 * (connect/sendto on the wrong family is EAFNOSUPPORT).
+                 * Close + recreate; the guest-visible Sn_SR/IR flow is
+                 * unchanged. Pure-v6 modes already own an AF_INET6 fd;
+                 * pure-v4 never upgrades. */
+                if (want_v6 && w6300_mode_is_dual(mode) &&
+                    !w6300_sock_host_v6(s)) {
+                    int st = w6300_mode_is_udp(mode) ? SOCK_DGRAM :
+                             (w6300_mode_is_ipraw(mode) ? SOCK_RAW : SOCK_STREAM);
+                    int proto = 0;
+                    if (w6300_mode_is_ipraw(mode))
+                        proto = s->regs[W6300_Sn_PNR] ? s->regs[W6300_Sn_PNR] : IPPROTO_RAW;
+                    if (w6300_sock_recreate(&s->host_fd, AF_INET6, st, proto) < 0) {
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+                        s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+                        break;
+                    }
+                    w6300_sock_apply_ttl_tos(s);
+                }
+                if (want_v6 && !w6300_host_fd_is_v6(s->host_fd)) {
+                    /* Defensive: never dial v6 on an fd the kernel
+                     * reports as non-v6 (fd reuse / platform quirk). */
+                    fprintf(stderr, "[W6300] Socket %d v6 dial on non-v6 fd\n", sock);
+                    s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+                    s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+                    break;
+                }
                 if (want_v6) {
                     struct sockaddr_in6 dest6;
                     w6300_build_addr6(s, &dest6);
@@ -568,6 +694,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
     case W6300_CMD_DISCON:
         if (s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+            s->retry_ticks = 0;
             if (dev->live) w6300_close_host_sock(s);
             s->regs[W6300_Sn_IR] |= W6300_IR_DISCON;
         }
@@ -575,6 +702,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
 
     case W6300_CMD_CLOSE:
         s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+        s->retry_ticks = 0;
         if (dev->live) w6300_close_host_sock(s);
 #ifdef __EMSCRIPTEN__
         if (dev->live) {
@@ -618,7 +746,18 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             for (uint16_t i = 0; i < data_len; i++) {
                 send_buf[i] = s->tx_buf[(tx_rd + i) % W6300_TX_BUF_SIZE];
             }
-            if (is_v6 || (w6300_mode_is_udp(mode) &&
+            /* Dual-stack UDP upgrade: an AF_INET UDPD socket sending to
+             * a v6 destination becomes AF_INET6 first (same recreate as
+             * CONNECT). TCP dual uses the CONNECT-time upgrade; a SEND
+             * that still finds the wrong family errors TIMEOUT. */
+            if (is_v6 && w6300_mode_is_udp(mode) &&
+                w6300_mode_is_dual(mode) && !w6300_sock_host_v6(s)) {
+                w6300_sock_recreate(&s->host_fd, AF_INET6, SOCK_DGRAM, 0);
+                w6300_sock_apply_ttl_tos(s);
+            }
+            if (is_v6 && !w6300_host_fd_is_v6(s->host_fd)) {
+                s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+            } else if (is_v6 || (w6300_mode_is_udp(mode) &&
                            w6300_mode_is_dual(mode) &&
                            w6300_sock_dest_is_v6(s))) {
                 struct sockaddr_in6 dest6;
@@ -1310,8 +1449,45 @@ int w6300_pio_is_armed(int pio_num, int sm);
  * Live Networking: Poll host sockets for incoming data
  * ======================================================================== */
 
+/* Retry engine (see w6300_sock_retry_tick decl at file top): a SYNSENT
+ * socket that never becomes writable exhausts Sn_RCR attempts of
+ * Sn_RTR*100us each, then raises TIMEOUT + CLOSED like silicon. */
+static void w6300_sock_retry_tick(w6300_t *dev, int sock) {
+    (void)dev;
+    w6300_socket_t *s = &dev->sockets[sock];
+    if (s->regs[W6300_Sn_SR] != W6300_SOCK_SYNSENT) {
+        s->retry_ticks = 0;
+        return;
+    }
+    uint8_t rcr = s->regs[W6300_Sn_RCR];
+    if (rcr == 0) return;  /* 0 = retry forever */
+    uint16_t rtr = ((uint16_t)s->regs[W6300_Sn_RTR0] << 8) |
+                   s->regs[W6300_Sn_RTR0 + 1];
+    if (rtr == 0) rtr = 20000;  /* datasheet default 2000ms */
+    /* ticks per attempt: RTR*100us / 1ms-per-tick, min 1. */
+    uint32_t per_attempt = (uint32_t)((rtr + 9) / 10);
+    if (per_attempt == 0) per_attempt = 1;
+    if (++s->retry_ticks >= (uint16_t)(per_attempt * (uint32_t)rcr)) {
+        s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+        s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+        if (s->host_fd >= 0) { close(s->host_fd); s->host_fd = -1; }
+        s->retry_ticks = 0;
+        w6300_board_refresh_int();
+    }
+}
+
 void w6300_poll(w6300_t *dev) {
     if (!dev->live) return;
+
+    /* TCNTR: free-running 1ms ticker (silicon: 1ms per LSB). poll() is
+     * the emulator's 1ms-ish tick source (main-loop + WASM step pump). */
+    {
+        uint16_t t = ((uint16_t)dev->common[W6300_TCNTR0] << 8) |
+                     dev->common[W6300_TCNTR0 + 1];
+        t++;
+        dev->common[W6300_TCNTR0] = (t >> 8) & 0xFF;
+        dev->common[W6300_TCNTR0 + 1] = t & 0xFF;
+    }
 
     for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
         w6300_socket_t *s = &dev->sockets[i];
@@ -1320,7 +1496,10 @@ void w6300_poll(w6300_t *dev) {
             s->regs[W6300_Sn_SR] == W6300_SOCK_LISTEN) {
             struct pollfd pfd = { .fd = s->host_listen_fd, .events = POLLIN };
             if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
-                struct sockaddr_in client;
+                /* sockaddr_storage: a v6 listener's client is v6; the
+                 * old sockaddr_in truncated it (DIPR garbage, port ok
+                 * by luck). Mirror v6 peers into DIP6R/DPORTR. */
+                struct sockaddr_storage client;
                 socklen_t clen = sizeof(client);
                 int cfd = accept(s->host_listen_fd, (struct sockaddr *)&client, &clen);
                 if (cfd >= 0) {
@@ -1328,12 +1507,21 @@ void w6300_poll(w6300_t *dev) {
                     if (s->host_fd >= 0) close(s->host_fd);
                     s->host_fd = cfd;
                     s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
-                    uint32_t ip = ntohl(client.sin_addr.s_addr);
-                    s->regs[W6300_Sn_DIPR0]     = (ip >> 24) & 0xFF;
-                    s->regs[W6300_Sn_DIPR0 + 1] = (ip >> 16) & 0xFF;
-                    s->regs[W6300_Sn_DIPR0 + 2] = (ip >>  8) & 0xFF;
-                    s->regs[W6300_Sn_DIPR0 + 3] = ip & 0xFF;
-                    uint16_t port = ntohs(client.sin_port);
+                    uint16_t port;
+                    if (client.ss_family == AF_INET6) {
+                        struct sockaddr_in6 *c6 = (struct sockaddr_in6 *)&client;
+                        for (int k = 0; k < 16; k++)
+                            s->regs[W6300_Sn_DIP6R0 + k] = c6->sin6_addr.s6_addr[k];
+                        port = ntohs(c6->sin6_port);
+                    } else {
+                        struct sockaddr_in *c4 = (struct sockaddr_in *)&client;
+                        uint32_t ip = ntohl(c4->sin_addr.s_addr);
+                        s->regs[W6300_Sn_DIPR0]     = (ip >> 24) & 0xFF;
+                        s->regs[W6300_Sn_DIPR0 + 1] = (ip >> 16) & 0xFF;
+                        s->regs[W6300_Sn_DIPR0 + 2] = (ip >>  8) & 0xFF;
+                        s->regs[W6300_Sn_DIPR0 + 3] = ip & 0xFF;
+                        port = ntohs(c4->sin_port);
+                    }
                     s->regs[W6300_Sn_DPORTR0]     = (port >> 8) & 0xFF;
                     s->regs[W6300_Sn_DPORTR0 + 1] = port & 0xFF;
                     s->regs[W6300_Sn_IR] |= W6300_IR_CON;
@@ -1341,7 +1529,8 @@ void w6300_poll(w6300_t *dev) {
             }
         }
 
-        if (s->host_fd >= 0 && s->regs[W6300_Sn_SR] == W6300_SOCK_SYNSENT) {
+        if (s->regs[W6300_Sn_SR] == W6300_SOCK_SYNSENT) {
+            if (s->host_fd >= 0) {
             struct pollfd pfd = { .fd = s->host_fd, .events = POLLOUT };
             if (poll(&pfd, 1, 0) > 0 &&
                 (pfd.revents & (POLLOUT | POLLERR | POLLHUP))) {
@@ -1351,17 +1540,32 @@ void w6300_poll(w6300_t *dev) {
                 if (err == 0) {
                     s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
                     s->regs[W6300_Sn_IR] |= W6300_IR_CON;
+                    s->retry_ticks = 0;
                 } else {
                     s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
                     close(s->host_fd);
                     s->host_fd = -1;
+                    s->retry_ticks = 0;
                 }
+            } else {
+                w6300_sock_retry_tick(dev, i);
+            }
+            } else {
+                /* Offline SYNSENT (no host fd, e.g. WASM proxy wait or
+                 * stub): still run the retry budget so a guest that
+                 * never gets CON sees TIMEOUT like silicon. */
+                w6300_sock_retry_tick(dev, i);
             }
         }
 
+        /* IPRAW sockets also receive (raw datagrams have no header
+         * framing in the model: payload lands as-is; ioLibrary parity
+         * would need IP-header parsing, which no in-tree guest uses). */
         if (s->host_fd >= 0 &&
             (s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED ||
-              s->regs[W6300_Sn_SR] == W6300_SOCK_UDP)) {
+             s->regs[W6300_Sn_SR] == W6300_SOCK_UDP ||
+             s->regs[W6300_Sn_SR] == W6300_SOCK_IPRAW4 ||
+             s->regs[W6300_Sn_SR] == W6300_SOCK_IPRAW6)) {
 
             uint16_t rx_rsr = ((uint16_t)s->regs[W6300_Sn_RX_RSR0] << 8) |
                               s->regs[W6300_Sn_RX_RSR0 + 1];

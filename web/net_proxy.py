@@ -208,7 +208,8 @@ def handle_w5500_from_browser(ws_conn, data):
     # Control + data messages from WASM W5500/W6300 live bridge:
     #   CONNECT [0x43, sock, 6, 0, udp, a0, a1, a2, a3, port_lo, port_hi] (11B, IPv4)
     #   CONNECT6[0x43, sock, 18, 0, udp, 16B ip6, port_lo, port_hi] (23B, W6300 IPv6)
-    #   LISTEN  [0x4C, sock, port_lo, port_hi] (4B)
+    #   LISTEN  [0x4C, sock, port_lo, port_hi] (4B, IPv4)
+    #   LISTEN6 [0x4C, sock, port_lo, port_hi, '6'] (5B, W6300 IPv6)
     #   CLOSE   [0x58, sock] (2B)
     #   SEND    [0x57, sock, len_lo, len_hi, payload...] (IPv4 payload as-is)
     #   SEND6   [0x57, sock, len_lo, len_hi, '6', 16B ip6, port_lo, port_hi, payload...]
@@ -259,6 +260,7 @@ def handle_w5500_from_browser(ws_conn, data):
         if len(data) >= 4 and data[0] == 0x4C:
             sock = data[1]
             port = data[2] | (data[3] << 8)
+            is_v6 = len(data) >= 5 and data[4] == 0x36  # '6': LISTEN6
             key = (id(ws_conn), sock)
             old = hub.w5500_socks.pop(key, None)
             if old:
@@ -267,9 +269,11 @@ def handle_w5500_from_browser(ws_conn, data):
                 except Exception:
                     pass
             try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                fam = socket.AF_INET6 if is_v6 else socket.AF_INET
+                bind_addr = ("::", port) if is_v6 else ("0.0.0.0", port)
+                s = socket.socket(fam, socket.SOCK_STREAM)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind(("0.0.0.0", port))
+                s.bind(bind_addr)
                 s.listen(1)
                 s.setblocking(False)
                 with hub.lock:
