@@ -2,6 +2,23 @@
 
 ## [Unreleased] - 2026-09-29
 
+### Added - W6300 silicon-parity round 2 (SEND guards, KPALVTR, WOL, TTL/MSS)
+
+SEND/SEND_KEEP from an invalid state raise TIMEOUT with no SENDOK
+(SEND valid only from ESTABLISHED/UDP/IPRAW/MACRAW; SEND_KEEP only
+from ESTABLISHED; wrong-family v6 SEND breaks without SENDOK);
+Sn_KPALVTR auto-keepalive ticks in poll() (KPALVTR×5s idle on
+ESTABLISHED TCP → probe + SENDOK, any TX/manual probe restarts the
+clock, 0 disables, works offline); NETMR_WOL magic-packet detect on
+MACRAW ingress (IPv4/UDP + IP-length checks + 6×FF + 16×SHAR →
+common IR_WOL); TTL/TOS sockopts use int-width opts (IPV6_UNICAST_HOPS
+/ IP_TTL are int, not u8); Sn_MSSR clamps TCP_MAXSEG at CONNECT;
+retry_ticks/kpalv_ticks widened to u32; 3 new unit tests
+(send_bad_state_timeout, kpalvtr_auto_probe, wol_magic_packet);
+469/469 tests; sweep 70/70; WASM + threads rebuilt,
+test-wasm/ble/gateway PASS. RV32 stays sweep-locked via in-tree
+IPv4 guests (untouched).
+
 ### Added - W6300 live-path hardening (dual upgrade, accept, retry, TCNTR)
 
 Closes the real remaining offload gaps found by auditing the live paths

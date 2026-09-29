@@ -6852,7 +6852,8 @@ TEST(test_w6300_send6_sendok) {
 }
 
 TEST(test_w6300_send_keep_sendok) {
-    /* SEND_KEEP on an ESTABLISHED TCP socket (offline): SENDOK. */
+    /* SEND_KEEP on an ESTABLISHED TCP socket (offline): SENDOK.
+     * On a non-ESTABLISHED socket: TIMEOUT, no SENDOK (silicon). */
     w6300_t dev;
     w6300_init(&dev);
     test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
@@ -6865,6 +6866,86 @@ TEST(test_w6300_send_keep_sendok) {
                 "SENDOK after SEND_KEEP");
     ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_CR),
               "CR auto-clears after SEND_KEEP");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CLOSE);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_IRCLR, 0xFF);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND_KEEP);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_TIMEOUT,
+                "TIMEOUT after SEND_KEEP on CLOSED");
+    ASSERT_TRUE(!(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK),
+                "no SENDOK after SEND_KEEP on CLOSED");
+    PASS();
+}
+
+TEST(test_w6300_send_bad_state_timeout) {
+    /* SEND/SEND6 from INIT (never CONNECTed): TIMEOUT, no SENDOK. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_INIT, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "TCP OPEN should reach INIT");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_TIMEOUT,
+                "TIMEOUT after SEND from INIT");
+    ASSERT_TRUE(!(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK),
+                "no SENDOK after SEND from INIT");
+    PASS();
+}
+
+TEST(test_w6300_kpalvtr_auto_probe) {
+    /* KPALVTR=1 (5s) on an ESTABLISHED TCP socket: 5000 poll ticks
+     * fire one SEND_KEEP probe (SENDOK, no guest command). */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_KPALVTR, 0x01);
+    dev.live = 1;  /* poll() early-outs when not live */
+    extern void w6300_poll(w6300_t *dev);
+    for (int t = 0; t < 4999; t++) w6300_poll(&dev);
+    ASSERT_TRUE(!(dev.sockets[0].regs[W6300_Sn_IR] & W6300_IR_SENDOK),
+                "no probe before 5000 idle ticks");
+    w6300_poll(&dev);
+    ASSERT_TRUE(dev.sockets[0].regs[W6300_Sn_IR] & W6300_IR_SENDOK,
+                "KPALVTR probe should fire at 5000 ticks");
+    dev.live = 0;
+    PASS();
+}
+
+TEST(test_w6300_wol_magic_packet) {
+    /* NETMR_WOL + magic packet (6xFF + 16x SHAR) on MACRAW ingress
+     * raises common IR_WOL; without WOL bit, no raise. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_MACRAW);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_TRUE(dev.vnet_port >= 0, "MACRAW should attach a vnet port");
+    uint8_t frame[14 + 20 + 8 + 102];
+    memset(frame, 0, sizeof(frame));
+    memcpy(frame, dev.common + W6300_SHAR0, 6);  /* dst = ours */
+    frame[12] = 0x08; frame[13] = 0x00;          /* ethertype IPv4 */
+    frame[23] = 17;                              /* IP protocol UDP */
+    frame[16] = 0x00; frame[17] = 20 + 8 + 102;  /* IP total length */
+    for (int i = 0; i < 6; i++) frame[42 + i] = 0xFF;
+    for (int r = 0; r < 16; r++)
+        memcpy(frame + 42 + 6 + r * 6, dev.common + W6300_SHAR0, 6);
+    extern void w6300_macraw_dispatch(void *ctx, w6300_t **dev_out, int *sock_out);
+    extern void w6300_gw_enable_set(int on);
+    (void)w6300_macraw_dispatch; (void)w6300_gw_enable_set;
+    /* Ingress via the vnet bus: broadcast frame reaches our port. */
+    frame[0] = 0xFF; frame[1] = 0xFF; frame[2] = 0xFF;
+    frame[3] = 0xFF; frame[4] = 0xFF; frame[5] = 0xFF;
+    vnet_tx_frame(-1, frame, sizeof(frame));
+    ASSERT_TRUE(!(dev.common[W6300_IR] & W6300_IR_WOL),
+                "no WOL without NETMR_WOL");
+    dev.common[W6300_NETMR] = W6300_NETMR_WOL;
+    vnet_tx_frame(-1, frame, sizeof(frame));
+    ASSERT_TRUE(dev.common[W6300_IR] & W6300_IR_WOL,
+                "magic packet should raise IR_WOL");
+    test_w6300_reg_write(&dev, 0, W6300_IRCLR, W6300_IR_WOL);
+    ASSERT_TRUE(!(dev.common[W6300_IR] & W6300_IR_WOL),
+                "IRCLR should clear IR_WOL");
     PASS();
 }
 
@@ -9441,6 +9522,9 @@ int main(void) {
     RUN_TEST(test_w6300_live_udp6_loopback_echo);
     RUN_TEST(test_w6300_send6_sendok);
     RUN_TEST(test_w6300_send_keep_sendok);
+    RUN_TEST(test_w6300_send_bad_state_timeout);
+    RUN_TEST(test_w6300_kpalvtr_auto_probe);
+    RUN_TEST(test_w6300_wol_magic_packet);
     RUN_TEST(test_w6300_send_mac_sendok);
     RUN_TEST(test_w6300_ipv6_net_regs_lock);
     RUN_TEST(test_w6300_slcr_full_bits);

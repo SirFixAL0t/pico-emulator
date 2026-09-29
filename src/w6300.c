@@ -30,6 +30,7 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include "w6300.h"
 #include "vnet.h"
@@ -154,13 +155,15 @@ static void w6300_sock_apply_ttl_tos(w6300_socket_t *s) {
     if (getsockopt(s->host_fd, SOL_SOCKET, SO_DOMAIN, &fam, &fl) != 0)
         fam = AF_INET;
     if (fam == AF_INET6) {
+        int hops = ttl;
         setsockopt(s->host_fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
-                   &ttl, sizeof(ttl));
+                   &hops, sizeof(hops));
         int tclass = s->regs[W6300_Sn_TOSR];
         setsockopt(s->host_fd, IPPROTO_IPV6, IPV6_TCLASS,
                    &tclass, sizeof(tclass));
     } else {
-        setsockopt(s->host_fd, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));
+        int ittl = ttl;
+        setsockopt(s->host_fd, IPPROTO_IP, IP_TTL, &ittl, sizeof(ittl));
         int tos = s->regs[W6300_Sn_TOSR];
         setsockopt(s->host_fd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
     }
@@ -234,6 +237,28 @@ static void w6300_macraw_vnet_rx(void *ctx, const uint8_t *frame, int len) {
     s->regs[W6300_Sn_RX_RSR0]     = (rx_rsr >> 8) & 0xFF;
     s->regs[W6300_Sn_RX_RSR0 + 1] = rx_rsr & 0xFF;
     s->regs[W6300_Sn_IR] |= W6300_IR_RECV;
+    /* Wake-on-LAN (NETMR_WOL): UDP magic packet (6x 0xFF + 16x SHAR)
+     * raises common IR_WOL. Checked on every MACRAW ingress at the UDP
+     * payload offset (14 ETH + 20 IP + 8 UDP = 42B). The IP total-length
+     * field (bytes 16..17) must cover the UDP header + 102B payload,
+     * and the IP protocol byte (23) must be UDP — otherwise any
+     * broadcast long frame with FFs at offset 42 would false-trigger. */
+    if ((dev->common[W6300_NETMR] & W6300_NETMR_WOL) && len >= (42 + 102) &&
+        frame[12] == 0x08 && frame[13] == 0x00 && frame[23] == 17) {
+        uint16_t ip_len = ((uint16_t)frame[16] << 8) | frame[17];
+        if (ip_len >= (20 + 8 + 102)) {
+            const uint8_t *pl = frame + 42;
+            uint8_t mac[6];
+            for (int i = 0; i < 6; i++) mac[i] = dev->common[W6300_SHAR0 + i];
+            int i;
+            for (i = 0; i < 6; i++) if (pl[i] != 0xFF) break;
+            if (i == 6) {
+                for (i = 0; i < 16; i++)
+                    if (memcmp(pl + 6 + i * 6, mac, 6) != 0) break;
+                if (i == 16) dev->common[W6300_IR] |= W6300_IR_WOL;
+            }
+        }
+    }
     w6300_board_refresh_int();
 }
 
@@ -412,6 +437,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
          * across OPEN (ioLibrary: valid on TCP only, set at CONNECT). */
         s->regs[W6300_Sn_ESR] = 0x00;
         s->retry_ticks = 0;
+        s->kpalv_ticks = 0;
         /* Pure-v6 modes always dial AF_INET6; pure-v4 stay AF_INET.
          * Dual-stack TCPD/UDPD open AF_INET by default and upgrade to
          * AF_INET6 on CONNECT/CONNECT6 with a v6 destination, or speak
@@ -613,6 +639,17 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
                     s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
                     break;
                 }
+                /* Sn_MSSR clamps the kernel send buffer for TCP (the
+                 * closest host equivalent to silicon's MSS ceiling;
+                 * ioLibrary default MSSR=1460). */
+                if (w6300_mode_is_tcp(mode)) {
+                    uint16_t mss = ((uint16_t)s->regs[W6300_Sn_MSSR0] << 8) |
+                                   s->regs[W6300_Sn_MSSR0 + 1];
+                    if (mss == 0) mss = 1460;
+                    int imss = mss;
+                    setsockopt(s->host_fd, IPPROTO_TCP, TCP_MAXSEG,
+                               &imss, sizeof(imss));
+                }
                 if (want_v6) {
                     struct sockaddr_in6 dest6;
                     w6300_build_addr6(s, &dest6);
@@ -695,6 +732,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         if (s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
             s->retry_ticks = 0;
+            s->kpalv_ticks = 0;
             if (dev->live) w6300_close_host_sock(s);
             s->regs[W6300_Sn_IR] |= W6300_IR_DISCON;
         }
@@ -703,6 +741,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
     case W6300_CMD_CLOSE:
         s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
         s->retry_ticks = 0;
+        s->kpalv_ticks = 0;
         if (dev->live) w6300_close_host_sock(s);
 #ifdef __EMSCRIPTEN__
         if (dev->live) {
@@ -729,6 +768,21 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         if (cmd == W6300_CMD_SEND && w6300_mode_is_dual(mode) &&
             w6300_sock_dest_is_v6(s))
             is_v6 = 1;
+        /* SEND is only valid from ESTABLISHED (TCP/IPRAW) or UDP. Any
+         * other state (CLOSED/INIT/SYNSENT/LISTEN/...) raises TIMEOUT
+         * like silicon (ioLibrary: Sn_IR_TIMEOUT on invalid SEND). */
+        {
+            uint8_t sst = s->regs[W6300_Sn_SR];
+            int ok = (sst == W6300_SOCK_ESTABLISHED) ||
+                     (sst == W6300_SOCK_UDP) ||
+                     (sst == W6300_SOCK_IPRAW4) ||
+                     (sst == W6300_SOCK_IPRAW6) ||
+                     (sst == W6300_SOCK_MACRAW);
+            if (!ok) {
+                s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+                break;
+            }
+        }
         uint16_t tx_rd = ((uint16_t)s->regs[W6300_Sn_TX_RD0] << 8) |
                          s->regs[W6300_Sn_TX_RD0 + 1];
         uint16_t tx_wr = ((uint16_t)s->regs[W6300_Sn_TX_WR0] << 8) |
@@ -757,6 +811,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             }
             if (is_v6 && !w6300_host_fd_is_v6(s->host_fd)) {
                 s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+                break;
             } else if (is_v6 || (w6300_mode_is_udp(mode) &&
                            w6300_mode_is_dual(mode) &&
                            w6300_sock_dest_is_v6(s))) {
@@ -837,6 +892,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         s->regs[W6300_Sn_TX_FSR0] = (W6300_TX_BUF_SIZE >> 8) & 0xFF;
         s->regs[W6300_Sn_TX_FSR0 + 1] = W6300_TX_BUF_SIZE & 0xFF;
         s->regs[W6300_Sn_IR] |= W6300_IR_SENDOK;
+        s->kpalv_ticks = 0;  /* any TX restarts the KPALVTR idle clock */
         break;
     }
 
@@ -845,9 +901,14 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         /* Keep-alive: 1-byte probe on an ESTABLISHED TCP socket.
          * Live path sends a single 0x00 byte (kernel KA would need
          * SO_KEEPALIVE tuning; this matches W5500-equivalent behavior
-         * of surfacing SENDOK). Offline: just flag SENDOK. */
-        if (dev->live && s->host_fd >= 0 &&
-            s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED) {
+         * of surfacing SENDOK). Non-ESTABLISHED raises TIMEOUT like
+         * silicon (ioLibrary: SEND_KEEP valid on ESTABLISHED only).
+         * Offline ESTABLISHED: just flag SENDOK. */
+        if (s->regs[W6300_Sn_SR] != W6300_SOCK_ESTABLISHED) {
+            s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+            break;
+        }
+        if (dev->live && s->host_fd >= 0) {
             uint8_t probe = 0x00;
             if (w6300_mode_is_v6(mode)) {
                 struct sockaddr_in6 peer6;
@@ -863,6 +924,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             }
         }
         s->regs[W6300_Sn_IR] |= W6300_IR_SENDOK;
+        s->kpalv_ticks = 0;  /* manual probe restarts the idle clock too */
         break;
     }
 
@@ -1467,7 +1529,7 @@ static void w6300_sock_retry_tick(w6300_t *dev, int sock) {
     /* ticks per attempt: RTR*100us / 1ms-per-tick, min 1. */
     uint32_t per_attempt = (uint32_t)((rtr + 9) / 10);
     if (per_attempt == 0) per_attempt = 1;
-    if (++s->retry_ticks >= (uint16_t)(per_attempt * (uint32_t)rcr)) {
+    if (++s->retry_ticks >= per_attempt * (uint32_t)rcr) {
         s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
         s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
         if (s->host_fd >= 0) { close(s->host_fd); s->host_fd = -1; }
@@ -1531,30 +1593,61 @@ void w6300_poll(w6300_t *dev) {
 
         if (s->regs[W6300_Sn_SR] == W6300_SOCK_SYNSENT) {
             if (s->host_fd >= 0) {
-            struct pollfd pfd = { .fd = s->host_fd, .events = POLLOUT };
-            if (poll(&pfd, 1, 0) > 0 &&
-                (pfd.revents & (POLLOUT | POLLERR | POLLHUP))) {
-                int err = 0;
-                socklen_t elen = sizeof(err);
-                getsockopt(s->host_fd, SOL_SOCKET, SO_ERROR, &err, &elen);
-                if (err == 0) {
-                    s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
-                    s->regs[W6300_Sn_IR] |= W6300_IR_CON;
-                    s->retry_ticks = 0;
+                struct pollfd pfd = { .fd = s->host_fd, .events = POLLOUT };
+                if (poll(&pfd, 1, 0) > 0 &&
+                    (pfd.revents & (POLLOUT | POLLERR | POLLHUP))) {
+                    int err = 0;
+                    socklen_t elen = sizeof(err);
+                    getsockopt(s->host_fd, SOL_SOCKET, SO_ERROR, &err, &elen);
+                    if (err == 0) {
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
+                        s->regs[W6300_Sn_IR] |= W6300_IR_CON;
+                        s->retry_ticks = 0;
+                    } else {
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+                        close(s->host_fd);
+                        s->host_fd = -1;
+                        s->retry_ticks = 0;
+                    }
                 } else {
-                    s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
-                    close(s->host_fd);
-                    s->host_fd = -1;
-                    s->retry_ticks = 0;
+                    w6300_sock_retry_tick(dev, i);
                 }
-            } else {
-                w6300_sock_retry_tick(dev, i);
-            }
             } else {
                 /* Offline SYNSENT (no host fd, e.g. WASM proxy wait or
                  * stub): still run the retry budget so a guest that
                  * never gets CON sees TIMEOUT like silicon. */
                 w6300_sock_retry_tick(dev, i);
+            }
+        }
+
+        /* Automatic keep-alive (Sn_KPALVTR): idle ESTABLISHED TCP sends
+         * a SEND_KEEP probe every KPALVTR*5s. poll() ticks at ~1ms, so
+         * ticks/call = 1. Any SEND/SEND_KEEP resets the counter
+         * (done in the command handlers). KPALVTR=0 disables. Offline
+         * (no host fd, e.g. unit test / WASM proxy wait): still raise
+         * SENDOK so guests observe the probe schedule; no bytes move. */
+        if (s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED &&
+            w6300_mode_is_tcp(s->regs[W6300_Sn_MR]) &&
+            s->regs[W6300_Sn_KPALVTR] != 0) {
+            uint32_t period = (uint32_t)s->regs[W6300_Sn_KPALVTR] * 5000u;
+            if (++s->kpalv_ticks >= period) {
+                s->kpalv_ticks = 0;
+                if (s->host_fd >= 0) {
+                    uint8_t probe = 0x00;
+                    if (w6300_sock_host_v6(s)) {
+                        struct sockaddr_in6 peer6;
+                        socklen_t plen = sizeof(peer6);
+                        if (getpeername(s->host_fd, (struct sockaddr *)&peer6,
+                                        &plen) == 0)
+                            sendto(s->host_fd, &probe, 1, 0,
+                                   (struct sockaddr *)&peer6, plen);
+                        else
+                            send(s->host_fd, &probe, 1, MSG_NOSIGNAL);
+                    } else {
+                        send(s->host_fd, &probe, 1, MSG_NOSIGNAL);
+                    }
+                }
+                s->regs[W6300_Sn_IR] |= W6300_IR_SENDOK;
             }
         }
 
@@ -1573,10 +1666,15 @@ void w6300_poll(w6300_t *dev) {
             if (free_space == 0) continue;
 
             /* IPv6 sockets speak recvfrom/recv on an AF_INET6 fd; the
-             * UDP header layout is identical (WIZnet packs the v4-mapped
-             * 4B source for v4 and the raw 16B for v6 — the ioLibrary
-             * UDP6 path consumes DIP6R-indexed reads, so store the peer
-             * bytes the same way: 8B v4 header, 24B v6 header). */
+             * UDP header layout follows the W5500 convention (8B: 4B
+             * src IP + 2B src port + 2B len) extended to v6 by widening
+             * the address field: 16B src IPv6 + 2B src port + 2B zero
+             * pad + 2B len = 22B. ioLibrary parity for UDP6 would need
+             * the exact silicon layout (unverifiable: the vendored
+             * W6300lwIP driver is IPv4-only, no DIP6R/DIPR pack format
+             * exists in-tree); the 22B choice keeps the v4 prefix shape
+             * (addr, port, len in the same relative order) and is
+             * loopback-tested end-to-end (DIP6R mirror verified). */
             int sock_is_v6 = 0;
             {
                 struct sockaddr_storage ss;
