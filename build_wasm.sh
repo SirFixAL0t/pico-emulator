@@ -37,6 +37,8 @@ EXPORTS='[
   "_picoemu_load_uf2","_picoemu_load_elf",
   "_picoemu_step","_picoemu_set_clock",
   "_picoemu_read_uart","_picoemu_read_uart_bulk","_picoemu_write_uart",
+  "_picoemu_write_uart_port","_picoemu_write_usb",
+  "_picoemu_uart_active","_picoemu_usb_active",
   "_picoemu_get_gpio","_picoemu_get_gpio_raw","_picoemu_get_gpio_out","_picoemu_get_gpio_oe","_picoemu_set_gpio",
   "_picoemu_mem_read32","_picoemu_mem_write32",
   "_picoemu_is_halted","_picoemu_get_core_state",

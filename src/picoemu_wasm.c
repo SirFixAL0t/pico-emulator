@@ -258,6 +258,46 @@ void picoemu_write_uart(int ch) {
     }
 }
 
+/* Targeted console input: UART0 / UART1 / USB CDC.
+ * The legacy picoemu_write_uart() queues bytes and feed_uart_rx() routes
+ * them (USB-when-enumerated else UART0 with CR->LF). These exports bypass
+ * the queue and push straight at the selected port so the browser Send box
+ * can address UART1 or USB explicitly. */
+static int port_saw_cr[2] = {0, 0};
+
+void picoemu_write_uart_port(int uart_num, int ch) {
+    if (uart_num < 0 || uart_num > 1) return;
+    uint8_t b = (uint8_t)ch;
+    if (b == '\r') {
+        uart_rx_push(uart_num, (uint8_t)'\n');
+        port_saw_cr[uart_num] = 1;
+    } else if (b == '\n') {
+        if (port_saw_cr[uart_num]) { port_saw_cr[uart_num] = 0; return; }
+        uart_rx_push(uart_num, b);
+    } else {
+        port_saw_cr[uart_num] = 0;
+        uart_rx_push(uart_num, b);
+    }
+}
+
+int picoemu_write_usb(int ch) {
+    return usb_cdc_rx_push((uint8_t)ch);
+}
+
+/* Port availability probes for the browser port dropdown. UART counts as
+ * available once firmware enables it (UARTEN) or has emitted TX traffic;
+ * USB counts once CDC is enumerated with both bulk endpoints found. */
+int picoemu_uart_active(int uart_num) {
+    if (uart_num < 0 || uart_num > 1) return 0;
+    if (uart_state[uart_num].tx_activity > 0) return 1;
+    if (uart_state[uart_num].cr & UART_CR_UARTEN) return 1;
+    return 0;
+}
+
+int picoemu_usb_active(void) {
+    return usb_cdc_stdio_active();
+}
+
 /* Called periodically by the step loop to feed UART RX from our buffer. */
 static void feed_uart_rx(void) {
     /* Route like native stdin_pending_flush: USB CDC preferred when enumerated,

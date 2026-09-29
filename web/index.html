@@ -45,7 +45,7 @@
       <h2>Examples</h2>
       <div style="display:flex;flex-direction:column;gap:8px">
         <label>RP2040 (M0+)
-          <select id="demo-rp2040" onchange="if(this.value){loadPreset(this.value);this.selectedIndex=0}">
+          <select id="demo-rp2040" onchange="demoPicked(this)">
             <option value="">Pick a demo…</option>
             <option value="hello_world.uf2">hello_world</option>
             <option value="gpio_test.uf2">gpio_test</option>
@@ -73,13 +73,14 @@
             <option value="wifi_webserver.uf2">WiFi webserver</option>
             <option value="eth_dhcp.uf2">ETH DHCP (pico-eth)</option>
             <option value="eth_dhcp6300.uf2">ETH DHCP (pico-w6300)</option>
+            <option value="ethdhcp6300_arduino.uf2">ETH DHCP Arduino (pico-w6300)</option>
             <option value="eth_http.uf2">ETH HTTP (pico-eth)</option>
             <option value="eth_http6300.uf2">ETH HTTP (pico-w6300)</option>
             <option value="ble_adv.uf2">BLE advertise M0+ (CYW43)</option>
           </select>
         </label>
         <label>RP2350 M33 (ARM)
-          <select id="demo-m33" onchange="if(this.value){loadPreset(this.value);this.selectedIndex=0}">
+          <select id="demo-m33" onchange="demoPicked(this)">
             <option value="">Pick a demo…</option>
             <option value="littleos_pico2.uf2">littleOS M33</option>
             <option value="hello_world_pico2.uf2">Hello M33</option>
@@ -106,13 +107,14 @@
             <option value="wifi_webserver_pico2.uf2">WiFi webserver M33</option>
             <option value="eth_dhcp_pico2.uf2">ETH DHCP M33 (pico-eth2)</option>
             <option value="eth_dhcp6300_pico2.uf2">ETH DHCP M33 (pico-w6300-2)</option>
+            <option value="ethdhcp6300_arduino_pico2.uf2">ETH DHCP Arduino M33 (pico-w6300-2)</option>
             <option value="eth_http_pico2.uf2">ETH HTTP M33 (pico-eth2)</option>
             <option value="eth_http6300_pico2.uf2">ETH HTTP M33 (pico-w6300-2)</option>
             <option value="ble_adv_pico2.uf2">BLE advertise M33 (CYW43)</option>
           </select>
         </label>
         <label>RP2350 Hazard3 (RISC-V)
-          <select id="demo-rv32" onchange="if(this.value){loadPreset(this.value);this.selectedIndex=0}">
+          <select id="demo-rv32" onchange="demoPicked(this)">
             <option value="">Pick a demo…</option>
             <option value="littleos_pico2_riscv.uf2">littleOS RV32</option>
             <option value="hello_rv32.uf2">Hello RV32</option>
@@ -148,20 +150,6 @@
           </select>
         </label>
       </div>
-    </div>
-
-    <div class="panel">
-      <h2>What this bench covers</h2>
-      <p style="margin-bottom:8px">Two chips, three cores. Pick a firmware above and press Run; the serial well shows exactly what the chip would print.</p>
-      <table class="support" style="min-width:0;font-size:12px">
-        <thead><tr><th scope="col">Chip</th><th scope="col">Core</th><th scope="col">Try first</th></tr></thead>
-        <tbody>
-          <tr><td>RP2040</td><td>Cortex-M0+</td><td>hello_world, gpio_test, MicroPython</td></tr>
-          <tr><td>RP2350</td><td>Cortex-M33</td><td>littleOS M33, wifi_scan M33</td></tr>
-          <tr><td>RP2350</td><td>Hazard3 RV32</td><td>BLE advertise RV32, wifi_ping6 RV32</td></tr>
-        </tbody>
-      </table>
-      <p style="margin-top:8px">Full per-core feature tables live on the <a href="./docs.html">docs page</a>.</p>
     </div>
 
     <div class="panel">
@@ -228,26 +216,6 @@
       <div class="info-row"><span>Realtime:</span><span class="info-val" id="core-speed">-</span></div>
     </div>
 
-    <div class="gpio-board">
-      <h2>Pico header — live pin map</h2>
-      <p class="gpio-note">Round pads like the physical 2×20 header, wired to whichever core is running. Pin 25 is the on-board LED; pins 23–25 and 29 double as the CYW43 WiFi lines on Pico W boards.</p>
-      <h3>Bank 0, pins 0–15</h3>
-      <div class="gpio-grid" id="gpio-low"></div>
-    </div>
-    <div class="gpio-board">
-      <h3>Bank 0, pins 16–29</h3>
-      <div class="gpio-grid" id="gpio-high"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Send input</h2>
-      <div style="display:flex;gap:6px">
-        <input type="text" id="uart-input" placeholder="Type to send..."
-               style="flex:1">
-        <button class="btn primary" id="btn-send">Send</button>
-      </div>
-    </div>
-
     <div class="panel">
       <h2>Inspect memory</h2>
       <div class="btn-row">
@@ -293,6 +261,20 @@
       </div>
       <p style="margin-top:6px">Runs the same suite as <code>ctest</code>; MicroPython REPL goes through USB-CDC with <code>-stdin</code>.</p>
     </div>
+
+    <div class="panel">
+      <h2>What this bench covers</h2>
+      <p style="margin-bottom:8px">Two chips, three cores. Pick a firmware above and press Run; the serial well shows exactly what the chip would print.</p>
+      <table class="support" style="min-width:0;font-size:12px">
+        <thead><tr><th scope="col">Chip</th><th scope="col">Core</th><th scope="col">Try first</th></tr></thead>
+        <tbody>
+          <tr><td>RP2040</td><td>Cortex-M0+</td><td>hello_world, gpio_test, MicroPython</td></tr>
+          <tr><td>RP2350</td><td>Cortex-M33</td><td>littleOS M33, wifi_scan M33</td></tr>
+          <tr><td>RP2350</td><td>Hazard3 RV32</td><td>BLE advertise RV32, wifi_ping6 RV32</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:8px">Full per-core feature tables live on the <a href="./docs.html">docs page</a>.</p>
+    </div>
   </div>
 
   <div class="stage">
@@ -302,6 +284,31 @@
         <button class="btn" id="btn-clear">Clear</button>
       </div>
       <div id="serial-output" role="log" aria-label="Firmware serial output" aria-live="polite"></div>
+    </div>
+    <div class="panel">
+      <h2>Send input</h2>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <select id="port-select" aria-label="Console port" style="max-width:130px">
+          <option value="auto">Auto</option>
+          <option value="uart0">UART0</option>
+          <option value="uart1">UART1</option>
+          <option value="usb">USB CDC</option>
+        </select>
+        <input type="text" id="uart-input" placeholder="Type to send..."
+               style="flex:1;min-width:140px">
+        <button class="btn primary" id="btn-send">Send</button>
+      </div>
+      <p style="margin-top:6px" id="port-hint">Auto: USB when enumerated, else UART0.</p>
+    </div>
+    <div class="gpio-board">
+      <h2>Pico header — live pin map</h2>
+      <p class="gpio-note">Round pads like the physical 2×20 header, wired to whichever core is running. Pin 25 is the on-board LED; pins 23–25 and 29 double as the CYW43 WiFi lines on Pico W boards.</p>
+      <h3>Bank 0, pins 0–15</h3>
+      <div class="gpio-grid" id="gpio-low"></div>
+    </div>
+    <div class="gpio-board">
+      <h3>Bank 0, pins 16–29</h3>
+      <div class="gpio-grid" id="gpio-high"></div>
     </div>
   </div>
 </div>
@@ -458,6 +465,7 @@ function frame() {
 
     updateCoreState();
     updateGpio();
+    try { updatePortHint(); } catch(e) {}
 
     // Instantaneous emulator speed: steps done in THIS frame over its own
     // wall time (was: total-since-boot / frame-dt, which decayed forever).
@@ -527,13 +535,64 @@ $('clock-select').onchange = (e) => {
 
 $('btn-clear').onclick = () => { uartText = ''; serialEl.textContent = ''; };
 
+function sendBytes(port, text) {
+  // CR submits the line: USB REPLs (MicroPython) want raw CR, UART shells
+  // get CR->LF. Sent only when there is text to submit.
+  let hasPort = false;
+  try { hasPort = typeof mod._picoemu_write_uart_port === 'function'; } catch(e) {}
+  const writeUartPort = (n, code) => {
+    try {
+      if (hasPort) { mod._picoemu_write_uart_port(n, code); return; }
+    } catch(e) {}
+    if (n === 0) mod._picoemu_write_uart(code);
+  };
+  const writeUsbRaw = (code) => {
+    try {
+      if (mod._picoemu_write_usb) {
+        if (mod._picoemu_write_usb(code)) return;
+      }
+    } catch(e) {}
+    mod._picoemu_write_uart(code);
+  };
+  const pushLine = (codes) => {
+    if (port === 'uart1') {
+      for (const c of codes) writeUartPort(1, c);
+      if (codes.length) writeUartPort(1, 13);
+    } else if (port === 'uart0') {
+      for (const c of codes) writeUartPort(0, c);
+      if (codes.length) writeUartPort(0, 13);
+    } else if (port === 'usb') {
+      for (const c of codes) writeUsbRaw(c);
+      if (codes.length) writeUsbRaw(13);
+    } else {
+      for (const c of codes) mod._picoemu_write_uart(c);
+      if (codes.length) mod._picoemu_write_uart(13);
+    }
+  };
+  pushLine([...text].map(ch => ch.charCodeAt(0)));
+}
+
+function updatePortHint() {
+  const hint = $('port-hint');
+  if (!hint || !mod) return;
+  let u0 = 0, u1 = 0, usb = 0;
+  try { u0 = mod._picoemu_uart_active ? mod._picoemu_uart_active(0) : 1; } catch(e) {}
+  try { u1 = mod._picoemu_uart_active ? mod._picoemu_uart_active(1) : 0; } catch(e) {}
+  try { usb = mod._picoemu_usb_active ? mod._picoemu_usb_active() : 0; } catch(e) {}
+  const live = [];
+  if (u0) live.push('UART0');
+  if (u1) live.push('UART1');
+  if (usb) live.push('USB CDC');
+  hint.textContent = live.length
+    ? `Live: ${live.join(' + ')}. UART1 appears once firmware enables it.`
+    : 'No console active yet — run firmware first.';
+}
+
 $('btn-send').onclick = () => {
   if (!mod) return;
   const text = $('uart-input').value;
-  for (const ch of text) mod._picoemu_write_uart(ch.charCodeAt(0));
-  // CR submits the line: USB REPLs (MicroPython) want raw CR, UART shells
-  // get CR->LF via feed_uart_rx. Sent only when there is text to submit.
-  if (text.length) mod._picoemu_write_uart(13);
+  const port = ($('port-select') || {}).value || 'auto';
+  sendBytes(port, text);
   $('uart-input').value = '';
 };
 
@@ -588,6 +647,16 @@ async function loadFirmware(data, name) {
   mod._free(ptr);
   mod._picoemu_reset();
 
+  // Keep the chosen firmware name visible: drop-zone loads and failed
+  // preset fetches clear all arch dropdowns back to "Pick a demo…".
+  const presetHit = ['demo-rp2040', 'demo-m33', 'demo-rv32']
+    .map(id => $(id)).find(s => s && s.value === name);
+  for (const id of ['demo-rp2040', 'demo-m33', 'demo-rv32']) {
+    const s = $(id);
+    if (!s) continue;
+    if (presetHit) { if (s !== presetHit) s.selectedIndex = 0; }
+    else s.selectedIndex = 0;
+  }
   // pico-eth/pico-eth2 board (WIZnet W5500-EVB-Pico/Pico2): separate SPI
   // board, off by default. picoemu_init detaches, so re-apply the UI
   // selection here. Pico2 wiring is identical; only the SoC differs.
@@ -614,6 +683,15 @@ async function loadFirmware(data, name) {
 
   $('status').textContent += ` - ${name}`;
   updateCoreState();
+  try {
+    const sel = $('port-select');
+    if (sel) {
+      const wantUsb = /micropython|hello_usb|usb/i.test(name);
+      if (wantUsb) sel.value = 'usb';
+      else if (sel.value === 'usb' && !wantUsb) sel.value = 'auto';
+    }
+  } catch(e) {}
+  updatePortHint();
 }
 window.loadPreset = async (name) => {
   $('status').textContent = `Fetching ${name}...`;
@@ -623,6 +701,18 @@ window.loadPreset = async (name) => {
     const buf = new Uint8Array(await res.arrayBuffer());
     await loadFirmware(buf, name);
   } catch(e) { $('status').textContent = `Failed ${name}: ${e.message}`; }
+};
+// Keep the chosen firmware visible in its dropdown: the picked select holds
+// its value, the other two arch selects fall back to "Pick a demo…".
+window.demoPicked = (sel) => {
+  if (!sel || !sel.value) return;
+  for (const id of ['demo-rp2040', 'demo-m33', 'demo-rv32']) {
+    if (id !== sel.id) {
+      const other = $(id);
+      if (other) other.selectedIndex = 0;
+    }
+  }
+  window.loadPreset(sel.value);
 };
 // OpenHW-style network gateway: raw Ethernet frames <-> gVisor NAT/DHCP.
 // Same protocol the ESP/STM32 simulators use: ws://host:5090/api/network-gateway[?sessionId=room]
