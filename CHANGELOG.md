@@ -2,6 +2,13 @@
 
 ## [Unreleased] - 2026-09-29
 
+### Added - W6300 SEND_MAC (0x21) shares SEND datapath
+
+SEND_MAC (UDP-only "send without ARP" per ioLibrary) shares the SEND
+datapath exactly — the model has no ARP table to skip (live UDP always
+`sendto()`s the programmed DIPR). 1 new unit test (`test_w6300_send_mac_sendok`:
+SENDOK + CR auto-clear); 461/461 tests. WASM rebuilt with current sources.
+
 ### Added - W6300 full feature completion (IPv6 regs, dual-stack, masks, retry)
 
 Closes every documented W6300 gap (same-as-W5500 items now done too):
