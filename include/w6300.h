@@ -268,6 +268,7 @@
 #define W6300_CMD_DISCON    0x08
 #define W6300_CMD_CLOSE     0x10
 #define W6300_CMD_SEND      0x20
+#define W6300_CMD_SEND_MAC  0x21    /* SEND with MAC (skip ARP; UDP only) */
 #define W6300_CMD_SEND_KEEP 0x22
 #define W6300_CMD_RECV      0x40
 #define W6300_CMD_CONNECT6  0x84

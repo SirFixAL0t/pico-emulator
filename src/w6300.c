@@ -586,8 +586,13 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         break;
 
     case W6300_CMD_SEND:
+    case W6300_CMD_SEND_MAC:
     case W6300_CMD_SEND6:
     {
+        /* SEND_MAC (0x21, UDP only per ioLibrary): same as SEND but
+         * uses Sn_DHAR directly, skipping ARP. The model has no ARP
+         * table to skip (live UDP always sendto()s the programmed
+         * DIPR), so SEND_MAC shares the SEND datapath exactly. */
         /* SEND6 targets IPv6 explicitly; plain SEND on a dual socket
          * follows the destination (DIP6R set => v6); pure-v6 modes are
          * always v6. Pure-v4 stays v4. */

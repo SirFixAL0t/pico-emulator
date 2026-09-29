@@ -6866,6 +6866,29 @@ TEST(test_w6300_send_keep_sendok) {
     PASS();
 }
 
+TEST(test_w6300_send_mac_sendok) {
+    /* SEND_MAC (0x21, UDP, ioLibrary "send without ARP"): shares the
+     * SEND datapath exactly — SENDOK + FSR restored + CR auto-clear. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_UDP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(2, 1));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    for (int i = 0; i < 16; i++) w6300_spi_xfer(&dev, (uint8_t)i);
+    w6300_spi_cs(&dev, 0);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0 + 1, 16);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND_MAC);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK,
+                "SENDOK after SEND_MAC");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_CR),
+              "CR auto-clears after SEND_MAC");
+    PASS();
+}
+
 TEST(test_w6300_ipv6_net_regs_lock) {
     /* LLAR/GUAR/SUB6R need NET-unlock like SHAR/GAR/SUBR/SIPR;
      * GA6R and socket-less dest regs do not. */
@@ -9189,6 +9212,7 @@ int main(void) {
     RUN_TEST(test_w6300_dual_connect_selects_family);
     RUN_TEST(test_w6300_send6_sendok);
     RUN_TEST(test_w6300_send_keep_sendok);
+    RUN_TEST(test_w6300_send_mac_sendok);
     RUN_TEST(test_w6300_ipv6_net_regs_lock);
     RUN_TEST(test_w6300_slcr_full_bits);
     RUN_TEST(test_w6300_sir_masked);
