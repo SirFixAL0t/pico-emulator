@@ -23,6 +23,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -32,6 +33,20 @@
 #include <arpa/inet.h>
 #include "w6300.h"
 #include "vnet.h"
+
+/* Bridge trace (file scope: RECV path at ~line 460 and the bridge
+ * section both log). Compile with -DPICOEMU_W6300_TRACE=1 for
+ * unconditional logging, or set PICOEMU_W6300_TRACE=1 at runtime. */
+#ifdef PICOEMU_W6300_TRACE
+#define W6300_TR(...) do { fprintf(stderr, "[W6300-QSPI] " __VA_ARGS__); fputc('\n', stderr); } while (0)
+#else
+static int w6300_tr_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) cached = getenv("PICOEMU_W6300_TRACE") ? 1 : 0;
+    return cached;
+}
+#define W6300_TR(...) do { if (w6300_tr_enabled()) { fprintf(stderr, "[W6300-QSPI] " __VA_ARGS__); fputc('\n', stderr); } } while (0)
+#endif
 
 /* WASM proxy queue (same framing as the W5500 pump; separate queue so
  * the two chips never interleave). Drained by JS through
@@ -135,6 +150,7 @@ static void w6300_macraw_vnet_rx(void *ctx, const uint8_t *frame, int len) {
     uint16_t free_space = W6300_RX_BUF_SIZE - rx_rsr;
     uint16_t need = (uint16_t)(len + 2);
     if (free_space < need) return;
+    W6300_TR("VNET-RX len=%d rsr=%u base=0x%04X", len, rx_rsr, s->rx_base);
     uint16_t rx_wr = (uint16_t)(s->rx_base + rx_rsr);
     uint16_t stored = (uint16_t)(len + 2);  /* prefix INCLUDES its 2 bytes */
     s->rx_buf[rx_wr % W6300_RX_BUF_SIZE] = (uint8_t)((stored >> 8) & 0xFF);
@@ -211,14 +227,16 @@ static void w6300_macraw_send(w6300_t *dev, int sock) {
     w6300_socket_t *s = &dev->sockets[sock];
     uint16_t tx_wr = ((uint16_t)s->regs[W6300_Sn_TX_WR0] << 8) |
                      s->regs[W6300_Sn_TX_WR0 + 1];
-    uint16_t base = s->tx_dirty_valid ? s->tx_dirty_base : 0;
-    uint16_t data_len = s->tx_dirty_valid ? s->tx_dirty_len : 0;
-    if (!s->tx_dirty_valid) {
-        uint16_t tx_rd = ((uint16_t)s->regs[W6300_Sn_TX_RD0] << 8) |
-                         s->regs[W6300_Sn_TX_RD0 + 1];
-        base = tx_rd;
-        data_len = (uint16_t)(tx_wr - tx_rd);
-    }
+    uint16_t tx_rd = ((uint16_t)s->regs[W6300_Sn_TX_RD0] << 8) |
+                     s->regs[W6300_Sn_TX_RD0 + 1];
+    /* Canonical length: TX_WR - TX_RD (ring sequence numbers, NOT the
+     * dirty tracker). The dirty tracker is a byte-accumulation hint
+     * for non-wrapping writes; the guest's TX_WR register is the real
+     * write pointer. Using dirty_len here misfires when the DHCP
+     * payload wraps past the tracker's linear run (342B DISCOVER at
+     * a nonzero TX_WR reads short and the frame never hits vnet). */
+    uint16_t data_len = (uint16_t)(tx_wr - tx_rd);
+    uint16_t base = tx_rd;
     if (data_len > W6300_TX_BUF_SIZE) data_len = W6300_TX_BUF_SIZE;
     if (data_len < 14 || data_len > 1514) {
         s->regs[W6300_Sn_TX_RD0] = s->regs[W6300_Sn_TX_WR0];
@@ -456,6 +474,17 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
                              s->regs[W6300_Sn_RX_RD0 + 1];
             uint16_t rx_rsr = ((uint16_t)s->regs[W6300_Sn_RX_RSR0] << 8) |
                               s->regs[W6300_Sn_RX_RSR0 + 1];
+            W6300_TR("RECV MACRAW rd=0x%04X rsr=%u base=0x%04X cursor=%s0x%04X",
+                     rx_rd, rx_rsr, s->rx_base,
+                     s->rx_cursor_valid ? "" : "(invalid)",
+                     s->rx_cursor_valid ? s->rx_cursor_base : 0);
+            /* Invalidate the VDM cursor: the next RX-buffer read frame
+             * carries a fresh address phase and must latch a fresh
+             * cursor. Without this, the second frame of a two-frame
+             * consume (header frame, then payload frame) reuses the
+             * first frame's cursor and serves payload shifted by the
+             * header length (OFFER payload corrupted -> no REQUEST). */
+            s->rx_cursor_valid = 0;
             if (rx_rd != s->rx_base && rx_rsr > 0) {
                 uint16_t pulled = (uint16_t)(rx_rd - s->rx_base);
                 if (pulled > rx_rsr) pulled = rx_rsr;
@@ -535,7 +564,7 @@ static uint8_t w6300_physr(void) {
 
 static uint8_t w6300_read_common(w6300_t *dev, uint16_t addr) {
     switch (addr) {
-    case W6300_CIDR0: return 0x61;
+    case W6300_CIDR0: return 0x61;  /* == VERSIONR (Arduino alias 0x0000) */
     case W6300_CIDR1: return 0x00;
     case W6300_CIDR2: return 0x11;
     case W6300_SYSR:  return w6300_sysr(dev);
@@ -561,7 +590,7 @@ static void w6300_write_common(w6300_t *dev, uint16_t addr, uint8_t val) {
     case W6300_SYSR:
     case W6300_PHYSR:
     case W6300_SIR:
-        return;  /* read-only */
+        return;  /* read-only (CIDR0 doubles as Arduino VERSIONR) */
     case W6300_SYCR0:
         if (dev->chip_locked) return;
         if (val & W6300_SYCR0_RST) {
@@ -658,7 +687,17 @@ static uint8_t w6300_read_sock(w6300_t *dev, int sock, uint16_t addr) {
 static void w6300_write_sock(w6300_t *dev, int sock, uint16_t addr, uint8_t val) {
     w6300_socket_t *s = &dev->sockets[sock];
     if (addr == W6300_Sn_SR) return;           /* read-only */
-    if (addr == W6300_Sn_IR) return;           /* WO: clear via IRCLR */
+    /* Sn_IR is write-1-to-clear on real silicon (the Arduino driver
+     * uses setSn_IR(Sn_IR_RECV) at the top of every readFrameSize to
+     * re-arm the RX flag; a plain store would be ignored... and the
+     * old code IGNORED all Sn_IR writes, so the RECV bit stayed stuck
+     * once the first frame arrived and readFrameSize never saw a fresh
+     * edge). Clear the written-1 bits, like the Sn_IRCLR path. */
+    if (addr == W6300_Sn_IR) {
+        s->regs[W6300_Sn_IR] &= (uint8_t)~val;
+        w6300_board_refresh_int();
+        return;
+    }
     if (addr == W6300_Sn_TX_FSR0 || addr == W6300_Sn_TX_FSR0 + 1) return;
     if (addr == W6300_Sn_TX_RD0 || addr == W6300_Sn_TX_RD0 + 1) return;
     if (addr == W6300_Sn_RX_RSR0 || addr == W6300_Sn_RX_RSR0 + 1) return;
@@ -694,6 +733,20 @@ static uint8_t w6300_read_byte(w6300_t *dev, uint8_t bsb, uint16_t addr) {
                 dev->sockets[sock].regs[W6300_Sn_MR] == W6300_MR_MACRAW &&
                 dev->sockets[sock].regs[W6300_Sn_SR] == W6300_SOCK_MACRAW) {
                 w6300_socket_t *ms = &dev->sockets[sock];
+                /* First RX-buffer read of a CS frame latches the VDM
+                 * cursor. The PL022 path latches in w6300_spi_xfer
+                 * before calling here; the PIO-QSPI bridge calls here
+                 * directly from its on-demand RXF serve, so latch here
+                 * too (no-op when already latched). Without this the
+                 * bridge serves rx_buf[rx_base+addr] instead of
+                 * rx_buf[rx_base+(addr-cursor)]: correct while rx_base
+                 * is 0, but every frame after the first RECV advances
+                 * rx_base and the guest reads shifted by rx_base bytes
+                 * (OFFER consumed corrupted -> no DHCP REQUEST). */
+                if (!ms->rx_cursor_valid) {
+                    ms->rx_cursor_base = addr;
+                    ms->rx_cursor_valid = 1;
+                }
                 uint16_t base = ms->rx_base % W6300_RX_BUF_SIZE;
                 uint16_t off = (uint16_t)(addr - ms->rx_cursor_base);
                 return ms->rx_buf[(base + off) % W6300_RX_BUF_SIZE];
@@ -746,9 +799,20 @@ static void w6300_write_byte(w6300_t *dev, uint8_t bsb, uint16_t addr,
         if (sock >= 0 && sock < W6300_NUM_SOCKETS) {
             if (sock == 0 &&
                 dev->sockets[sock].regs[W6300_Sn_MR] == W6300_MR_MACRAW &&
-                dev->sockets[sock].regs[W6300_Sn_SR] == W6300_SOCK_MACRAW)
-                break;
-            dev->sockets[sock].rx_buf[addr % W6300_RX_BUF_SIZE] = val;
+                dev->sockets[sock].regs[W6300_Sn_SR] == W6300_SOCK_MACRAW) {
+                w6300_socket_t *ms = &dev->sockets[sock];
+                /* First RX-buffer read of a CS frame latches the VDM
+                 * cursor (mirrors the PL022 path's rx_cursor_base in
+                 * w6300_spi_xfer). The cursor cannot latch at CS-assert
+                 * time because the frame's address phase hasn't arrived
+                 * yet; latch here when the bridge serves the first byte. */
+                if (!ms->rx_cursor_valid) {
+                    ms->rx_cursor_base = addr;
+                    ms->rx_cursor_valid = 1;
+                }
+            } else {
+                dev->sockets[sock].rx_buf[addr % W6300_RX_BUF_SIZE] = val;
+            }
         }
         break;
     }
@@ -873,6 +937,70 @@ void w6300_spi_cs(void *ctx, int cs_active) {
         }
     }
 }
+
+/* ========================================================================
+ * PIO-QSPI bridge (Arduino W6300 driver path)
+ *
+ * The driver (wiznet_pio_qspi.c) moves every byte through a PIO state
+ * machine + DMA pair instead of the PL022 SPI:
+ *   write: DMA command_buf (7B: 4 opcode-nibble bytes + addr_hi +
+ *          addr_lo + dummy) then payload bytes -> PIO TXF; the SM shifts
+ *          them out over IO0-IO3 with SCLK side-set, CS held low via
+ *          gpio_put(16) for the whole transaction.
+ *   read:  DMA command_buf -> TXF, then DMA pulls rx_length bytes out of
+ *          RXF; the SM clocks addr+dummy out, then shifts MISO in.
+ *   framing: frame_start() = CS low, frame_end() = CS high. The driver
+ *          spins on DMA TRANS_COUNT / FDEBUG TXSTALL for completion.
+ *
+ * The emulator's PIO engine executes the actual shift program and its
+ * DMA engine does the real TXF/RXF moves, but nothing connects the
+ * shifted bytes to the W6300 register file (the model sits behind the
+ * PL022 byte path). This bridge snoops at the PIO register layer:
+ *
+ * - TX path: every 32-bit word pushed to the TXF of an armed QSPI SM is
+ *   forwarded byte-wise (LSB first = DMA_SIZE_8 + bswap layout) into a
+ *   per-SM stream parser with the same phases as w6300_spi_xfer
+ *   (OPCODE -> ADDR_HI -> ADDR_LO -> DUMMY -> DATA). A burst of N bytes
+ *   in one TXF word (DMA byte mode packs 4/word... actually one byte
+ *   per word with bswap) is handled byte-by-byte. When the parser is in
+ *   DATA phase, writes go straight into the model; READ frames leave
+ *   the parser in DATA phase so RXF reads serve model bytes on-demand
+ *   (see RX path) — stray TX DATA bytes in a READ frame are ignored.
+ * - RX path: when the parser sits in the DATA phase of a READ frame,
+ *   each RXF read generates one model byte with address auto-increment
+ *   (mirrors the PL022 path's addr++), served instead of the (empty)
+ *   hardware FIFO. Real QSPI reads clock MISO out with no further TX
+ *   DATA bytes, so there is nothing to pre-queue.
+ * - Arming: pico-w6300 board on + SM OUT base == 18 (the driver's
+ *   `sm_config_set_out_pins(..., 18, 4)`). CS framing comes from the
+ *   GPIO16 watch: CS assert resets the parser to OPCODE; bytes only
+ *   forward while CS is asserted.
+ * - TXSTALL/FSTAT: the existing PIO engine already advances FIFOs, so
+ *   the driver's DMA-completion spins terminate naturally.
+ *
+ * Quad-vs-single: the driver's mk_cmd_buf() spreads each opcode bit
+ * across a nibble pair (bit7..bit0 -> bytes [b7,b6],[b5,b4],[b3,b2],
+ * [b1,b0] as (hi<<4)|lo) because the quad program shifts 4 bits/cycle
+ * over IO0-IO3. The bridge reassembles: 4 consecutive TXF bytes form
+ * one opcode byte as ((b0&1)<<7)|((b0&16)>>4<<6)... i.e. bit7 = byte0
+ * bit4, bit6 = byte0 bit0, bit5 = byte1 bit4, etc. Address-hi/lo and
+ * dummy travel as plain bytes (8 clocks each in quad = 2 cycles).
+ * Single-mode programs (or a future single driver) send plain bytes;
+ * the bridge auto-detects per frame: if the first 4 stream bytes look
+ * like nibble pairs (low nibble of each is 0 or the pattern matches
+ * a valid block/mode), decode quad, else single.
+ *
+ * LAYOUT NOTE: the bridge state struct + storage and all parser bodies
+ * live AFTER the board device statics (board section below), because
+ * they reference w6300_board_on / w6300_board_dev_state.
+ * ======================================================================== */
+
+/* Forward declarations (pio.c needs only these) */
+int w6300_pio_is_armed(int pio_num, int sm);
+
+/* NOTE: the remaining bridge entry points (sm_restart/pinctrl/tx_write/
+ * rx_read/rx_ready/rx_level) touch parser state that needs the board
+ * device, so they are defined after the board statics below. */
 
 /* ========================================================================
  * Live Networking: Poll host sockets for incoming data
@@ -1024,10 +1152,129 @@ void w6300_set_live(w6300_t *dev, int enable) {
 
 #include "spi.h"
 #include "gpio.h"
+#include "pio.h"
 
 static w6300_t w6300_board_dev_state;
 static int w6300_board_on = 0;
 static int w6300_board_spi_num = W6300_BOARD_SPI_DEFAULT;
+
+/* PIO-QSPI bridge state lives here (after the board device) so the
+ * parser helpers above can reference the board state. */
+#define W6300_QSPI_MAX_SM 4
+
+typedef struct {
+    int armed;              /* OUT base==18 seen on this SM */
+    int phase;              /* mirror of w6300_phase_t (0..4) */
+    uint8_t bsb;
+    int rw;
+    uint16_t addr;
+    /* quad detection: first 4 bytes of a frame buffered here */
+    uint8_t hdr[8];
+    int hdr_len;
+    int quad;               /* -1 unknown, 0 single, 1 quad */
+    /* No RX response queue: reads are served on-demand in
+     * w6300_pio_rx_read (one model byte per RXF read, addr++).
+     * Real QSPI reads send opcode+addr+dummy via TX then clock MISO
+     * bytes out of RXF with no further TX DATA bytes, so there is
+     * nothing to queue — the old queue never filled and only the
+     * on-demand path ever served. */
+    /* Pre-DMA setup words: the driver does 2x pio_sm_put (X/Y bit
+     * counts) before every DMA burst. Those TXF pushes are NOT QSPI
+     * stream bytes and must be skipped (CYW43 precedent:
+     * pio_pre_dma_skip in cyw43.c). Set on SM restart, consumed on
+     * TXF push. */
+    int setup_skip;
+} w6300_qspi_sm_t;
+
+static w6300_qspi_sm_t w6300_qspi[3][W6300_QSPI_MAX_SM];
+
+/* Board on-flag lives below with the device; the bridge checks it via
+ * w6300_board_enabled() (declared in w6300.h) to avoid a use-before-def. */
+/* (W6300_TR is defined once at file top.) */
+
+/* --- bridge parser bodies (need the board statics above) --- */
+
+static void w6300_qspi_push_byte(int pio_num, int sm, uint8_t b);
+
+static int w6300_qspi_resp_pending(int pio_num, int sm) {
+    /* On-demand RX: a queued byte exists iff the parser sits in the
+     * DATA phase of a READ frame (w6300_pio_rx_read generates one
+     * model byte per RXF read). Never any stored depth. */
+    w6300_qspi_sm_t *q = &w6300_qspi[pio_num][sm];
+    return (q->phase >= 4 && !q->rw) ? 1 : 0;
+}
+
+static int w6300_qspi_resp_level(int pio_num, int sm) {
+    return w6300_qspi_resp_pending(pio_num, sm) ? 1 : 0;
+}
+
+/* Reassemble one opcode byte from 4 quad-nibble stream bytes.
+ * mk_cmd_buf: pdst[i] = ((opcode>>(7-2i))&1)<<4 | ((opcode>>(6-2i))&1).
+ * So bit(7-2i) = byte[i] bit4, bit(6-2i) = byte[i] bit0. */
+static uint8_t w6300_qspi_quad_opcode(const uint8_t *nb) {
+    uint8_t op = 0;
+    for (int i = 0; i < 4; i++) {
+        if (nb[i] & 0x10) op |= (uint8_t)(1u << (7 - 2 * i));
+        if (nb[i] & 0x01) op |= (uint8_t)(1u << (6 - 2 * i));
+    }
+    return op;
+}
+
+/* Feed one stream byte (already quad-reassembled where applicable)
+ * through the frame parser into the board model. Writes go straight
+ * into the model; READ frames just park the parser in DATA phase so
+ * RXF reads serve model bytes on-demand (see w6300_pio_rx_read).
+ *
+ * CS handling: the driver holds CS low (gpio_put 16) for the whole
+ * transaction, and the GPIO16 watch mirrors that into dev->cs_active.
+ * If a frame arrives while cs_active is somehow clear (CS edge raced
+ * the first TXF push), treat the OPCODE byte as an implicit frame
+ * start rather than dropping the transaction. */
+static void w6300_qspi_frame_byte(int pio_num, int sm, uint8_t b) {
+    w6300_t *dev = &w6300_board_dev_state;
+    w6300_qspi_sm_t *q = &w6300_qspi[pio_num][sm];
+
+    W6300_TR("FRAME pio%d sm%d b=0x%02X phase=%d cs=%d", pio_num, sm, b,
+             q->phase, dev->cs_active);
+    if (!dev->cs_active && q->phase != 0) return;
+
+    switch (q->phase) {
+    case 0: /* OPCODE */
+        q->bsb = W6300_OP_BLOCK(b);
+        q->rw = W6300_OP_WRITE(b);
+        q->phase = 1;
+        break;
+    case 1: /* ADDR_HI */
+        q->addr = (uint16_t)b << 8;
+        q->phase = 2;
+        break;
+    case 2: /* ADDR_LO */
+        q->addr |= b;
+        q->phase = 3;
+        break;
+    case 3: /* DUMMY */
+        q->phase = 4;
+        break;
+    default: /* DATA */
+        if (q->rw) {
+            w6300_write_byte(dev, q->bsb, q->addr, b);
+            q->addr++;
+        } else {
+            /* READ frames generate model bytes on RXF demand (see
+             * w6300_pio_rx_read); stray TX DATA bytes (e.g. the
+             * dummy-phase tail the DMA replays) must not queue
+             * duplicates or advance the address. */
+            W6300_TR("READ-DATA-TX-IGN pio%d sm%d b=0x%02X bsb=%d addr=0x%04X",
+                     pio_num, sm, b, q->bsb, q->addr);
+        }
+        break;
+    }
+}
+
+static void w6300_qspi_push_byte(int pio_num, int sm, uint8_t b);
+
+/* (w6300_pio_cs_assert is defined once at file end, after the bridge
+ * state storage.) */
 
 static void w6300_board_refresh_int(void) {
     if (!w6300_board_on) return;
@@ -1072,6 +1319,12 @@ void w6300_board_gpio_write(uint32_t pin, uint32_t value) {
         if (v == w6300_board_prev_cs) return;
         w6300_board_prev_cs = v;
         w6300_spi_cs(&w6300_board_dev_state, v ? 0 : 1);
+        if (v) {
+            /* CS high (frame_end): the transaction is over. Nothing to
+             * discard: reads are served on-demand straight from the
+             * model (no response queue), and the parser re-syncs on
+             * the next restart/CS edge. */
+        }
     } else if (pin == W6300_BOARD_RST_PIN) {
         if (v == w6300_board_prev_rst) return;
         w6300_board_prev_rst = v;
@@ -1122,8 +1375,17 @@ void w6300_board_attach(int spi_num, int live) {
 }
 
 void w6300_board_detach(void) {
-    if (!w6300_board_on) return;
     w6300_board_on = 0;
+    /* Detach always fully resets bridge + model state, even if called
+     * when already off (unit tests call detach-then-attach; reset_cpu
+     * clears GPIO so stale CS edges must not leak a half-frame). */
+    for (int b = 0; b < 3; b++)
+        for (int sm = 0; sm < W6300_QSPI_MAX_SM; sm++) {
+            w6300_qspi[b][sm].phase = 0;
+            w6300_qspi[b][sm].hdr_len = 0;
+            w6300_qspi[b][sm].quad = -1;
+            w6300_qspi[b][sm].armed = 0;
+        }
     gpio_unmark_driven(W6300_BOARD_INT_PIN);
     w6300_board_dev_state.live = 0;
     for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
@@ -1190,3 +1452,211 @@ int picoemu_w6300_dev_push_status(w6300_t *dev, int sock, int code) {
     return 0;
 }
 #endif
+
+/* ========================================================================
+ * PIO-QSPI bridge: pio.c entry points + parser bodies (need the board
+ * statics above, so they live here at file end).
+ * Trace macro is defined once near the top (before the parser bodies).
+ * ======================================================================== */
+
+void w6300_pio_cs_assert(void) {
+    for (int b = 0; b < 3; b++)
+        for (int sm = 0; sm < W6300_QSPI_MAX_SM; sm++) {
+            w6300_qspi[b][sm].phase = 0;
+            w6300_qspi[b][sm].hdr_len = 0;
+            w6300_qspi[b][sm].quad = -1;
+        }
+}
+
+static void w6300_qspi_push_byte(int pio_num, int sm, uint8_t b) {
+    w6300_qspi_sm_t *q = &w6300_qspi[pio_num][sm];
+
+    /* Header accumulation for quad/single auto-detect: the first 4
+     * stream bytes are either 4 nibble-pair bytes (quad) or
+     * opcode+addr_hi+addr_lo+dummy (single). mk_cmd_buf emits only
+     * 0x00/0x01/0x10/0x11 per byte, BUT a single-mode frame can also
+     * match (e.g. opcode 0x00 + zero addrs). Disambiguate with the
+     * QSPI mode bits: the quad driver always sets QSPI_QUAD_MODE
+     * (0x80) in the opcode, so a valid quad header reassembles to an
+     * opcode with bit7 set. Nibble-set match AND (reassembled & 0x80)
+     * -> quad; otherwise replay the 4 bytes as single. */
+    if (q->quad < 0 && q->hdr_len < 4) {
+        q->hdr[q->hdr_len++] = b;
+        if (q->hdr_len == 4) {
+            int i;
+            for (i = 0; i < 4; i++) {
+                uint8_t v = q->hdr[i];
+                if (v != 0x00 && v != 0x01 && v != 0x10 && v != 0x11) break;
+            }
+            uint8_t op = w6300_qspi_quad_opcode(q->hdr);
+            if (i == 4 && (op & 0x80)) {
+                q->quad = 1;
+                w6300_qspi_frame_byte(pio_num, sm, op);
+                q->hdr_len = 0;
+            } else {
+                q->quad = 0;
+                for (i = 0; i < 4; i++)
+                    w6300_qspi_frame_byte(pio_num, sm, q->hdr[i]);
+                q->hdr_len = 0;
+            }
+        }
+        return;
+    }
+    if (q->quad == 1 && q->phase == 0 && q->hdr_len < 4) {
+        /* Quad OPCODE only: the 4 opcode nibble bytes. Everything after
+         * (addr_hi/lo + dummy + payload) crosses the TXF stream as
+         * single bytes — the driver's second DMA programs the raw tx
+         * buffer straight at TXF, and the PIO program's OUT shift
+         * serializes whatever width the wrap segment implies. Only the
+         * mk_cmd_buf opcode needs nibble reassembly. */
+        q->hdr[q->hdr_len++] = b;
+        if (q->hdr_len == 4) {
+            w6300_qspi_frame_byte(pio_num, sm, w6300_qspi_quad_opcode(q->hdr));
+            q->hdr_len = 0;
+        }
+        return;
+    }
+    w6300_qspi_frame_byte(pio_num, sm, b);
+}
+
+void w6300_pio_sm_restart(int pio_num, int sm) {
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return;
+    w6300_qspi_sm_t *q = &w6300_qspi[pio_num][sm];
+    q->phase = 0;
+    q->hdr_len = 0;
+    q->quad = -1;
+    /* NOTE: reads are served on-demand from the model (no response
+     * queue), so there is nothing to preserve or clear here — just
+     * re-sync the parser. The driver's read path calls pio_sm_restart()
+     * at transaction start, then programs the TXF stream; the RX DMA
+     * pulls model bytes AFTER the TX DMA completes, all within one CS
+     * frame. */
+    /* The driver follows every restart with 2x pio_sm_put bit-count
+     * setup words (X then Y) before the DMA burst. Skip exactly those
+     * two TXF pushes so they never enter the frame parser. */
+    q->setup_skip = 2;
+    /* NOTE: do NOT consult w6300_pio_is_armed here (it reports the armed
+     * flag, which would make arming impossible). Restart only resets the
+     * parser; PINCTRL writes do the arming. */
+    (void)q;
+}
+
+void w6300_pio_pinctrl(int pio_num, int sm) {
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return;
+    if (!w6300_board_on) return;
+    /* OUT base == 18 (IO0): the wiznet_pio_qspi program's out-pins
+     * config, applied via pio_sm_set_config -> PINCTRL write. Read the
+     * just-written PINCTRL directly (the armed flag is what
+     * w6300_pio_is_armed reports — don't consult it here or arming can
+     * never engage). */
+    extern pio_block_t pio_state[];
+    uint32_t pinctrl = pio_state[pio_num].sm[sm].pinctrl;
+    if (((pinctrl >> 0) & 0x1F) == 18) {
+        w6300_qspi[pio_num][sm].armed = 1;
+        W6300_TR("ARM pio%d sm%d (OUT base 18)", pio_num, sm);
+    } else {
+        w6300_qspi[pio_num][sm].armed = 0;
+    }
+}
+
+int w6300_pio_is_armed(int pio_num, int sm) {
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return 0;
+    if (!w6300_board_on) return 0;
+    return w6300_qspi[pio_num][sm].armed;
+}
+
+int w6300_pio_rx_level(int pio_num, int sm) {
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return -1;
+    if (!w6300_board_on || !w6300_qspi[pio_num][sm].armed) return -1;
+    return w6300_qspi_resp_level(pio_num, sm);
+}
+
+void w6300_pio_tx_write(int pio_num, int sm, uint32_t val) {
+    if (!w6300_board_on) return;
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return;
+    /* NOTE: no OUT-base re-gate here — arming is decided by PINCTRL
+     * writes (w6300_pio_pinctrl). TXF pushes forward whenever armed. */
+    if (!w6300_qspi[pio_num][sm].armed) return;
+    W6300_TR("TXF pio%d sm%d val=0x%08X skip=%d phase=%d hdr=%d quad=%d cs=%d eff16=%d",
+             pio_num, sm, val, w6300_qspi[pio_num][sm].setup_skip,
+             w6300_qspi[pio_num][sm].phase, w6300_qspi[pio_num][sm].hdr_len,
+             w6300_qspi[pio_num][sm].quad, w6300_board_dev_state.cs_active,
+             (gpio_effective_pins() >> 16) & 1u);
+    /* Skip the pre-DMA bit-count setup words (pio_sm_put X/Y before
+     * each DMA burst) — they are SM configuration, not QSPI bytes. */
+    if (w6300_qspi[pio_num][sm].setup_skip > 0) {
+        w6300_qspi[pio_num][sm].setup_skip--;
+        return;
+    }
+    w6300_qspi[pio_num][sm].armed = 1;
+    /* DMA_SIZE_8 + bswap: each TXF word carries one payload byte in
+     * the LSB. Forward LSB per word in write order == stream order.
+     * Frame sync: the driver always brackets a transaction with
+     * frame_start (CS low) / frame_end (CS high) via gpio_put(16), and
+     * the GPIO16 watch drives dev->cs_active — but CS edges can race
+     * the first TXF push through different register paths, so ALSO
+     * treat the start of a fresh parser frame (phase 0, no header
+     * bytes yet) as an implicit frame start. This keeps single-byte
+     * probe reads (VERSIONR/CIDR polls) aligned even if their CS edge
+     * was consumed before the bridge armed.
+     * CS SOURCE OF TRUTH: the driver's frame_start/frame_end path is
+     * gpio_put(16) (SIO OUT_SET/OUT_CLR -> OE-gated effective level).
+     * The GPIO16 watch (w6300_board_gpio_write) can lag the first TXF
+     * push when frame_start's gpio_set_function(PIO) + OUT_CLR land in
+     * the same window, so re-derive CS from the effective pin level
+     * here: eff16==0 means the guest is driving CS low right now. */
+    if (!w6300_board_dev_state.cs_active) {
+        w6300_qspi_sm_t *qq = &w6300_qspi[pio_num][sm];
+        if (qq->phase == 0 && qq->hdr_len == 0) {
+            if (((gpio_effective_pins() >> 16) & 1u) == 0)
+                w6300_board_dev_state.cs_active = 1;
+        }
+    }
+    w6300_qspi_push_byte(pio_num, sm, (uint8_t)(val & 0xFF));
+}
+
+uint32_t w6300_pio_rx_read(int pio_num, int sm) {
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return 0;
+    if (!w6300_board_on || !w6300_qspi[pio_num][sm].armed) return 0;
+    /* On-demand read: real QSPI reads send opcode+addr+dummy via TX,
+     * then clock MISO bytes out of RXF with NO further TX DATA bytes.
+     * When the parser sits in DATA phase of a READ frame, generate one
+     * model byte per RXF read with address auto-increment (mirrors the
+     * PL022 path's addr++ in w6300_spi_xfer). */
+    {
+        w6300_qspi_sm_t *q = &w6300_qspi[pio_num][sm];
+        if (q->phase >= 4 && !q->rw) {
+            w6300_t *dev = &w6300_board_dev_state;
+            uint8_t r = w6300_read_byte(dev, q->bsb, q->addr);
+            W6300_TR("RXF pio%d sm%d on-demand bsb=%d addr=0x%04X -> 0x%02X",
+                     pio_num, sm, q->bsb, q->addr, r);
+            q->addr++;
+            return r;
+        }
+    }
+    W6300_TR("RXF pio%d sm%d EMPTY (armed=%d)", pio_num, sm,
+             (pio_num >= 0 && sm >= 0) ? w6300_qspi[pio_num][sm].armed : -1);
+    return 0;
+}
+
+int w6300_pio_rx_ready(int pio_num, int sm) {
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return 0;
+    if (!w6300_board_on || !w6300_qspi[pio_num][sm].armed) return 0;
+    /* Data available iff the parser sits in the DATA phase of a READ
+     * frame (on-demand generation serves it; see w6300_pio_rx_read).
+     * Report ready so FSTAT clears RXEMPTY for the armed SM. */
+    return w6300_qspi_resp_pending(pio_num, sm);
+}
+
+/* SM-EXEC OUT X/Y consume hook (called from pio.c forced-exec): drop one
+ * pending TXF word from the bridge parser's view. Returns 1 if a word
+ * was consumed. */
+int w6300_pio_exec_out_drop(int pio_num, int sm) {
+    if (pio_num < 0 || pio_num > 2 || sm < 0 || sm > 3) return 0;
+    w6300_qspi_sm_t *q = &w6300_qspi[pio_num][sm];
+    if (q->setup_skip > 0) {
+        q->setup_skip--;
+        return 1;
+    }
+    return 0;
+}

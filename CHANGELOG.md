@@ -1,5 +1,33 @@
 # Pico-emu RP2040/RP2350 Emulator - Changelog
 
+## [Unreleased] - 2026-09-29
+
+### Added - W6300 Arduino PIO-QSPI bridge (full DORA on M0+ and M33)
+
+The Arduino `W6300lwIP` driver moves every byte through a PIO state
+machine + DMA pair (`wiznet_pio_qspi`: opcode/addr/data over IO0-IO3,
+DMA-fed TXF/RXF, CS on pin 16) instead of the PL022 SPI the register
+model sits behind — so no register traffic arrived (guest printed only
+`ETHDHCP-START`, zero DISCOVER). The bridge snoops that path at the PIO
+register layer (`src/w6300.c` + `src/pio.c`, zero cost when the board is
+off): OUT-base-18 arm via PINCTRL, per-transaction `pio_sm_restart`
+parser reset (armed flag persists), TXF word push-forward (LSB first =
+DMA_SIZE_8 + bswap layout), on-demand RXF serve (one model byte per RXF
+read, `addr++` — real QSPI reads clock MISO out with no further TX DATA
+bytes), TXSTALL-always-set + FSTAT/FLEVEL virtual FIFO status so the
+driver's DMA-completion spins terminate. Supporting fixes: sub-word
+DMA/PIO/SPI paths in `src/membus.c` (byte/halfword DMA into PIO TXF;
+without them the QSPI command stream never lands), SM-EXEC OUT X/Y
+setup-word consume in `src/pio.c`, TX length from TX_WR−TX_RD instead of
+the dirty tracker, bridge RX-cursor latch (OFFER corrupted → no REQUEST
+without it), Sn_IR direct-write W1C (RECV stuck → guest never saw ACK;
+unit test `test_w6300_sn_ir_w1c_via_irclr` extended). Verified live:
+M0+ (`wiznet_6300_evb_pico`, 106736B) peer `ALL DHCP CHECKS PASSED` +
+guest `ETH-BEGIN-OK` + `ETH-TICK conn=1 ip=192.168.4.2`; M33
+(`wiznet_6300_evb_pico2`, 101708B, `-board pico-w6300-2 -arch m33`) the
+same; 450/450 tests; sweep 68/68 (RV32 in-tree guests untouched,
+sweep-locked).
+
 ## [Unreleased] - 2026-09-28
 
 ### Added - Full W6300 Ethernet support (QSPI-single model + pico-w6300 boards + guests)
@@ -20,7 +48,8 @@ in-tree `eth_dhcp6300` (full DORA live on M0+/M33/RV32 — RV32 verified
 (DORA+ARP→SYN→GET→200→FIN→`ETH HTTP-DONE` live on all three, RV32 verified
 2026-09-28 the same way) guests + `ethdhcp6300` Arduino sketch (compiles
 M0+/M33 via in-core `lwIP_w6300` + `wiznet_6300_evb_pico[_2]` FQBNs; no DORA
-— driver uses a PIO+DMA QSPI program, unmodeled transport, root-caused); 12 new unit tests; sweep 68/68; WASM green
+yet at that point — driver uses a PIO+DMA QSPI program, unmodeled
+transport, root-caused; bridged 2026-09-29, see entry above); 12 new unit tests; sweep 68/68; WASM green
 (`test-wasm.js` + gateway E2E + `board_eth6300` MACRAW-OK probe).
 
 ## [Unreleased] - 2026-09-23

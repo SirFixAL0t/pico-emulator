@@ -1597,6 +1597,33 @@ void mem_write16(uint32_t addr, uint16_t val) {
         }
     }
 
+    /* DMA controller (byte/halfword path — the W6300 Arduino driver does
+     * 8-bit DMA into PIO TXF; without this the QSPI command stream never
+     * lands and the driver wedges). */
+    if (dma_match(addr)) {
+        uint32_t a32 = addr & ~0x3u;
+        uint32_t cur = dma_read32(a32 & 0xFFFu);
+        uint32_t bo = addr & 0x3u;
+        uint32_t mask8 = 0xFFu << (bo * 8u);
+        dma_write32(a32 & 0xFFFu, (cur & ~mask8) | ((uint32_t)val << (bo * 8u)));
+        return;
+    }
+
+    /* PIO (byte path — DMA-fed TXF command/data bytes for the W6300
+     * PIO-QSPI program). */
+    {
+        int pio_num = pio_match(addr);
+        if (pio_num >= 0) {
+            uint32_t a32 = addr & ~0x3u;
+            uint32_t off = a32 & 0xFFFu;
+            uint32_t cur = pio_read32(pio_num, off);
+            uint32_t bo = addr & 0x3u;
+            uint32_t mask8 = 0xFFu << (bo * 8u);
+            pio_write32(pio_num, off, (cur & ~mask8) | ((uint32_t)val << (bo * 8u)));
+            return;
+        }
+    }
+
     /* Stub out peripheral writes for now. */
     if (addr >= 0x40000000 && addr < 0x50000000) return;   /* APB/AHB peripherals */
     if (addr >= SIO_BASE     && addr < SIO_BASE + 0x1000) return;
@@ -1671,6 +1698,43 @@ void mem_write8(uint32_t addr, uint8_t val) {
                 uint32_t cur = uart_read32(uart_num, a32);
                 uint32_t mask8 = 0xFFu << (bo * 8u);
                 uart_write32(uart_num, a32, (cur & ~mask8) | ((uint32_t)val << (bo * 8u)));
+            }
+            return;
+        }
+    }
+
+    /* PIO (byte path — DMA-fed TXF command/data bytes for the W6300
+     * PIO-QSPI program). mem_write16 already routes the paired
+     * halfword lane; mem_write8 must hit the same byte lane here —
+     * the DMA engine's size-8 path calls mem_write8 for every QSPI
+     * stream byte. */
+    {
+        int pio_num = pio_match(addr);
+        if (pio_num >= 0) {
+            uint32_t a32 = addr & ~0x3u;
+            uint32_t off = a32 & 0xFFFu;
+            uint32_t cur = pio_read32(pio_num, off);
+            uint32_t bo = addr & 0x3u;
+            uint32_t mask8 = 0xFFu << (bo * 8u);
+            pio_write32(pio_num, off, (cur & ~mask8) | ((uint32_t)val << (bo * 8u)));
+            return;
+        }
+    }
+
+    /* SPI registers: DR writes push one frame (mirror the mem_write16
+     * rule — width follows CR0.DSS inside spi_write32). */
+    {
+        int spi_num = spi_match(addr);
+        if (spi_num >= 0) {
+            uint32_t off = addr & 0xFFFu;
+            if (off == SPI_SSPDR) {
+                spi_write32(spi_num, off, (uint32_t)val & 0xFFu);
+            } else {
+                uint32_t a32 = off & ~0x3u;
+                uint32_t cur = spi_read32(spi_num, a32);
+                uint32_t bo = addr & 0x3u;
+                uint32_t mask8 = 0xFFu << (bo * 8u);
+                spi_write32(spi_num, a32, (cur & ~mask8) | ((uint32_t)val << (bo * 8u)));
             }
             return;
         }
@@ -2009,6 +2073,24 @@ uint16_t mem_read16(uint32_t addr) {
         }
     }
 
+    /* DMA controller (halfword path — W6300 PIO-QSPI driver polls
+     * TRANS_COUNT via 16-bit reads; without this it spins forever). */
+    if (dma_match(addr)) {
+        uint32_t val32 = dma_read32((addr & ~0x3u) & 0xFFFu);
+        uint32_t bo = addr & 0x3u;
+        return (uint16_t)((val32 >> (bo * 8u)) & 0xFFFFu);
+    }
+
+    /* PIO (halfword path — same driver family). */
+    {
+        int pio_num = pio_match(addr);
+        if (pio_num >= 0) {
+            uint32_t val32 = pio_read32(pio_num, (addr & ~0x3u) & 0xFFFu);
+            uint32_t bo = addr & 0x3u;
+            return (uint16_t)((val32 >> (bo * 8u)) & 0xFFFFu);
+        }
+    }
+
     /* No 16-bit peripheral emulation yet. */
     return 0;
 }
@@ -2066,6 +2148,23 @@ uint8_t mem_read8(uint32_t addr) {
         int uart_num = uart_match(addr);
         if (uart_num >= 0) {
             uint32_t val32 = uart_read32(uart_num, addr & 0xFFFu);
+            uint32_t bo = addr & 0x3u;
+            return (uint8_t)((val32 >> (bo * 8u)) & 0xFFu);
+        }
+    }
+
+    /* DMA controller (byte path — W6300 PIO-QSPI driver). */
+    if (dma_match(addr)) {
+        uint32_t val32 = dma_read32((addr & ~0x3u) & 0xFFFu);
+        uint32_t bo = addr & 0x3u;
+        return (uint8_t)((val32 >> (bo * 8u)) & 0xFFu);
+    }
+
+    /* PIO (byte path — same driver family). */
+    {
+        int pio_num = pio_match(addr);
+        if (pio_num >= 0) {
+            uint32_t val32 = pio_read32(pio_num, (addr & ~0x3u) & 0xFFFu);
             uint32_t bo = addr & 0x3u;
             return (uint8_t)((val32 >> (bo * 8u)) & 0xFFu);
         }

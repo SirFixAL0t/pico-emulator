@@ -86,9 +86,11 @@
 #define W6300_BLK_COMMON    0
 
 /* Common register addresses (16-bit) */
-#define W6300_CIDR0     0x0000  /* Chip ID major (RO, 0x61) */
+#define W6300_CIDR0     0x0000  /* Chip ID major (RO, 0x61; Arduino VERSIONR alias) */
 #define W6300_CIDR1     0x0001  /* Chip ID (RO, 0x00) */
 #define W6300_CIDR2     0x0004  /* Minor/version (RO, 0x11) */
+#define W6300_VERSIONR  W6300_CIDR0 /* Arduino lwIP_w6300 name for CIDR0 */
+#define W6300_VERSIONR_VAL 0x61 /* W6300 version value (== CIDR0) */
 #define W6300_SYSR      0x2000  /* System status (RO) */
 #define W6300_SYCR0     0x2004  /* System config 0 (WO, RST bit7) */
 #define W6300_SYCR1     0x2005  /* System config 1 (IEN bit7) */
@@ -256,6 +258,39 @@ uint8_t w6300_spi_xfer(void *ctx, uint8_t mosi);
 void w6300_spi_cs(void *ctx, int cs_active);
 void w6300_poll(w6300_t *dev);
 void w6300_set_live(w6300_t *dev, int enable);
+
+/* PIO-QSPI bridge (Arduino W6300 driver path): the driver moves bytes
+ * with PIO SM + DMA (NOT the PL022 SPI): DMA feeds the QSPI command +
+ * payload bytes into the SM's TXF, and pulls MISO bytes out of RXF.
+ * These hooks snoop that traffic at the PIO register layer and feed the
+ * same byte stream into the w6300 register/buffer model, so the driver
+ * works unmodified. Write path: every word pushed to a TXF that belongs
+ * to an armed QSPI SM is forwarded byte-wise (LSB first, matching the
+ * driver's DMA_SIZE_8 + bswap layout). Read path: when the parser sits
+ * in the DATA phase of a READ frame, each RXF read generates one model
+ * byte with address auto-increment (real QSPI reads clock MISO out with
+ * no further TX DATA bytes, so there is nothing to pre-queue); served
+ * instead of the (empty) hardware FIFO.
+ *
+ * A QSPI SM is "armed" when the pico-w6300 board is on and the SM's
+ * OUT base pin is 18 (IO0), i.e. the wiznet_pio_qspi program's OUT pins
+ * 18..21 configuration. CS framing comes from the existing GPIO16 watch
+ * (w6300_board_gpio_write -> w6300_spi_cs); the bridge forwards bytes
+ * only while CS is asserted. Frame-start (CS assert) resets the bridge
+ * to OPCODE phase, mirroring w6300_spi_cs.
+ *
+ * Zero cost when off: a single w6300_board_enabled() flag test on TXF
+ * push / RXF pop. */
+void w6300_pio_tx_write(int pio_num, int sm, uint32_t val);
+uint32_t w6300_pio_rx_read(int pio_num, int sm);
+int w6300_pio_rx_ready(int pio_num, int sm);
+int w6300_pio_exec_out_drop(int pio_num, int sm);
+void w6300_pio_sm_restart(int pio_num, int sm);
+/* PIO register-layer hooks (called from pio.c, cheap when off) */
+void w6300_pio_pinctrl(int pio_num, int sm);
+int w6300_pio_is_armed(int pio_num, int sm);
+int w6300_pio_rx_level(int pio_num, int sm);
+void w6300_pio_cs_assert(void);
 
 /* MACRAW single-gateway path (same vnet bus as W5500/CYW43) */
 int w6300_macraw_attach(w6300_t *dev, int sock);

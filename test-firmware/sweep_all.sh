@@ -114,6 +114,14 @@ run_eth eth_dhcp_rv32.uf2 "ETH MACRAW-OK" 3000000 pico-eth rv32
 run_eth eth_dhcp6300.uf2 "ETH MACRAW-OK" 3000000 pico-w6300 none
 run_eth eth_dhcp6300_pico2.uf2 "ETH MACRAW-OK" 3000000 pico-w6300-2 none
 run_eth eth_dhcp6300_rv32.uf2 "ETH MACRAW-OK" 3000000 pico-w6300 rv32
+# Arduino W6300 DHCP guests (M0+/M33, real ioLibrary driver over the
+# PIO-QSPI bridge): sweep asserts the offline bring-up markers
+# (ETHDHCP-START + version 0x61 + MAC RAW mode + ETH-BEGIN-OK) with a
+# dead-end -net-peer socket. Full DORA needs the live peer
+# (test-firmware/dhcp_peer_test.py): peer ALL DHCP CHECKS PASSED +
+# guest ETH-TICK conn=1 ip=192.168.4.2.
+run_eth ethdhcp6300_arduino.uf2 "ETH-BEGIN-OK" 150000000 pico-w6300 none
+run_eth ethdhcp6300_arduino_pico2.uf2 "ETH-BEGIN-OK" 150000000 pico-w6300-2 none
 # pico-eth HTTP guests (M0+/M33/RV32): full DORA+HTTP is covered by
 # test-firmware/http_peer_test.py (needs a live peer); the sweep asserts
 # the pre-DORA markers the same way.

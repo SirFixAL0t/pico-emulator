@@ -21,6 +21,7 @@
 #include "dma.h"
 #include "emulator.h"
 #include "nvic.h"
+#include "pio.h"
 
 dma_state_t dma_state;
 
@@ -78,6 +79,16 @@ static void dma_do_transfer(int ch_idx) {
     { static int den = -1; if (den < 0) den = getenv("PICOEMU_CYW43_TRACE") ? 1 : 0;
       if (den) fprintf(stderr, "[DMA-TRACE] ch=%d count=%u ctrl=0x%08X size=%d r=%d w=%d swap=%d src=0x%08X dst=0x%08X\n",
                        ch_idx, count, c->ctrl, data_size, incr_read, incr_write, bswap, c->read_addr, c->write_addr); }
+    { static int wtr = -1; if (wtr < 0) wtr = getenv("PICOEMU_W6300_TRACE") ? 1 : 0;
+      if (wtr) {
+          int p = pio_match(c->write_addr);
+          int pr = pio_match(c->read_addr);
+          if (p >= 0 || pr >= 0)
+              fprintf(stderr, "[W6300-QSPI] DMA ch=%d count=%u size=%d r=%d w=%d src=0x%08X%s dst=0x%08X%s\n",
+                      ch_idx, count, data_size, incr_read, incr_write,
+                      c->read_addr, pr >= 0 ? " (PIO)" : "",
+                      c->write_addr, p >= 0 ? " (PIO)" : "");
+      } }
 
     uint32_t src = c->read_addr;
     uint32_t dst = c->write_addr;

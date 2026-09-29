@@ -9,16 +9,18 @@
 //   python3 test-firmware/dhcp_peer_test.py /tmp/ethdhcp6300.sock
 // Expect: ALL DHCP CHECKS PASSED + ETH-IP=192.168.4.2 on UART.
 //
-// TRANSPORT NOTE (verified 2026-09-28): the W6300 Arduino driver talks to
+// TRANSPORT NOTE (verified 2026-09-29): the W6300 Arduino driver talks to
 // the chip through a PIO+DMA QSPI program (wiznet_pio_qspi: PIO SM shifts
 // opcode/addr/data over IO0-IO3 with DMA feeding TXF/RXF, CS on pin 16).
-// The emulator models the W6300 register file behind the PL022 SPI path
-// (QSPI-single framing, CS16/RST22/INT15) — the PIO program path that
-// feeds it bytes is NOT modeled (same class of gap as CYW43 PIO before
-// its gSPI intercept). So this sketch compiles (core lib present) but
-// prints only ETHDHCP-START: no register traffic reaches the model. The
-// in-tree eth_dhcp6300/eth_http6300 guests (bit-banged PL022 SPI) are the
-// working prove-out for the same wire behavior (DORA + HTTP-DONE green).
+// The emulator bridges that path at the PIO register layer (TXF snoop +
+// on-demand RXF serve, OUT base 18 arm, per-transaction restart; same
+// class of intercept as CYW43 gSPI) into the W6300 register/buffer model,
+// so the driver works unmodified: full DORA is green on M0+ AND M33
+// (peer ALL DHCP CHECKS PASSED + ETH-BEGIN-OK + ETH-IP=192.168.4.2;
+// M0+ 106736B via wiznet_6300_evb_pico, M33 101708B via
+// wiznet_6300_evb_pico2). The in-tree eth_dhcp6300/eth_http6300 guests
+// (bit-banged PL022 SPI) remain the sweep-locked prove-out for the same
+// wire behavior (DORA + HTTP-DONE green).
 Wiznet6300lwIP eth(16, SPI, 15);
 
 static unsigned long spin_until(unsigned long ms) {

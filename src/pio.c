@@ -666,6 +666,20 @@ uint32_t pio_read32(int pio_num, uint32_t offset) {
                 }
                 continue;
             }
+            /* W6300 PIO-QSPI bridge: TX never full (bytes always
+             * accepted); RX non-empty while the parser sits in the DATA
+             * phase of a READ frame (on-demand serve). */
+            {
+                extern int w6300_pio_rx_ready(int pio_num, int sm);
+                extern int w6300_pio_is_armed(int pio_num, int sm);
+                if (w6300_pio_is_armed(pio_num, sm)) {
+                    fstat |= (1u << (PIO_FSTAT_TXEMPTY_SHIFT + sm));
+                    if (!w6300_pio_rx_ready(pio_num, sm)) {
+                        fstat |= (1u << (PIO_FSTAT_RXEMPTY_SHIFT + sm));
+                    }
+                    continue;
+                }
+            }
             if (fifo_full(&p->sm[sm].tx_fifo))
                 fstat |= (1u << (PIO_FSTAT_TXFULL_SHIFT + sm));
             if (fifo_empty(&p->sm[sm].tx_fifo))
@@ -685,6 +699,14 @@ uint32_t pio_read32(int pio_num, uint32_t offset) {
             if (cyw43_pio_phase_is_idle())
                 fdebug_val |= (1u << (24 + cyw43.pio_sm));
         }
+        /* W6300 PIO-QSPI bridge: TXSTALL always set on armed SMs (the
+         * driver spins on it after each DMA program step). */
+        {
+            extern int w6300_pio_is_armed(int pio_num, int sm);
+            for (int sm = 0; sm < PIO_NUM_SM; sm++)
+                if (w6300_pio_is_armed(pio_num, sm))
+                    fdebug_val |= (1u << (24 + sm));
+        }
         return fdebug_val;
     }
 
@@ -694,6 +716,13 @@ uint32_t pio_read32(int pio_num, uint32_t offset) {
         for (int sm = 0; sm < PIO_NUM_SM; sm++) {
             uint32_t tx_lvl = p->sm[sm].tx_fifo.count & 0x0F;
             uint32_t rx_lvl = p->sm[sm].rx_fifo.count & 0x0F;
+            /* W6300 bridge: on-demand RX availability (1 when the parser
+             * sits in a READ DATA phase, else 0) on armed SMs */
+            {
+                extern int w6300_pio_rx_level(int pio_num, int sm);
+                int q = w6300_pio_rx_level(pio_num, sm);
+                if (q >= 0) rx_lvl = (uint32_t)(q & 0x0F);
+            }
             flevel |= (tx_lvl << (sm * 8)) | (rx_lvl << (sm * 8 + 4));
         }
         return flevel;
@@ -709,6 +738,20 @@ uint32_t pio_read32(int pio_num, uint32_t offset) {
         /* CYW43 WiFi intercept: PIO0 SM0 RX returns gSPI response */
         if (cyw43.enabled && pio_num == cyw43.pio_num && sm == cyw43.pio_sm) {
             return cyw43_pio_rx_read();
+        }
+        /* W6300 PIO-QSPI bridge: when the parser sits in the DATA phase
+         * of a READ frame, serve one model byte per RXF read (on-demand,
+         * addr++). NOTE: this must come before the hardware FIFO pop —
+         * the driver's DMA pulls RXF for every response byte, and the HW
+         * FIFO is always empty (the PIO program is not executed, only
+         * snooped). Response bytes are model register values (full
+         * 8-bit); the DMA bswap only matters for multi-byte words, and
+         * the driver uses DMA_SIZE_8 here, so no byte-lane shifting. */
+        {
+            extern int w6300_pio_rx_ready(int pio_num, int sm);
+            extern uint32_t w6300_pio_rx_read(int pio_num, int sm);
+            if (w6300_pio_rx_ready(pio_num, sm))
+                return w6300_pio_rx_read(pio_num, sm);
         }
         uint32_t val = 0;
         fifo_pop(&p->sm[sm].rx_fifo, &val);
@@ -788,7 +831,9 @@ void pio_write32(int pio_num, uint32_t offset, uint32_t val) {
 
     switch (offset) {
     case PIO_CTRL: {
-        /* SM_ENABLE bits [3:0] */
+        /* SM_ENABLE bits [3:0] are level state (SDK pio_sm_set_enabled
+         * uses hw_set_bits/hw_clear_bits aliases, which OR/AND before
+         * calling here — so a plain store of val&mask is correct). */
         p->ctrl = val & PIO_CTRL_SM_ENABLE_MASK;
 
         /* SM_RESTART [7:4]: reset SMs (strobe, self-clearing) */
@@ -811,6 +856,21 @@ void pio_write32(int pio_num, uint32_t offset, uint32_t val) {
                 /* Notify CYW43 intercept of SM restart */
                 if (cyw43.enabled && pio_num == cyw43.pio_num && sm == cyw43.pio_sm)
                     cyw43_pio_sm_restart();
+                /* W6300 bridge parser restart (per-transaction reset):
+                 * the driver calls pio_sm_restart() at the start of
+                 * EVERY transaction before pushing the new frame's
+                 * bytes, and pio_sm_clear_fifos() after. The armed
+                 * flag is NOT touched here (it is set by PINCTRL
+                 * writes at open time and persists). Parser state
+                 * (phase/hdr/quad) and the setup_skip counter are reset
+                 * — matching the real SM restart semantics where stale
+                 * X/Y/state does not leak into the next transaction.
+                 * (Reads need no queue handling: RXF serves the model
+                 * on-demand, so there is nothing to preserve or drop.) */
+                {
+                    extern void w6300_pio_sm_restart(int pio_num, int sm);
+                    w6300_pio_sm_restart(pio_num, sm);
+                }
             }
         }
 
@@ -838,6 +898,13 @@ void pio_write32(int pio_num, uint32_t offset, uint32_t val) {
         if (cyw43.enabled && pio_num == cyw43.pio_num && sm == cyw43.pio_sm) {
             cyw43_pio_tx_write(val);
             break;
+        }
+        /* W6300 PIO-QSPI bridge: snoop TXF pushes on the armed SM.
+         * Declared in w6300.h; internally no-ops unless the pico-w6300
+         * board is on and this SM's OUT base is 18. */
+        {
+            extern void w6300_pio_tx_write(int pio_num, int sm, uint32_t val);
+            w6300_pio_tx_write(pio_num, sm, val);
         }
         fifo_push(&p->sm[sm].tx_fifo, val);
         break;
@@ -892,8 +959,32 @@ void pio_write32(int pio_num, uint32_t offset, uint32_t val) {
         case 0x08: s->shiftctrl = val; break;
         case 0x0C: /* ADDR is read-only */ break;
         case 0x10:
-            /* Writing SM_INSTR triggers forced execution */
+            /* Writing SM_INSTR triggers forced execution.
+             * W6300 bridge note: the QSPI driver loads X/Y bit-counts
+             * via pio_sm_exec(pio_encode_out(...)) — OUT-to-X/Y with a
+             * 32-bit count pops the TXF. Those setup words must NOT reach
+             * the bridge parser, so consume them here: if the forced
+             * instruction is OUT X/Y (32 bits), pop+discard one TXF word
+             * instead of executing a shift that would drain real data. */
             s->instr = val & 0xFFFF;
+            if (((val >> 13) & 0x07) == PIO_OP_OUT) {
+                uint8_t dest = (val >> 5) & 0x07;
+                uint8_t bc = val & 0x1F;
+                if ((dest == 1 || dest == 2) && (bc == 0)) {
+                    uint32_t drop = 0;
+                    /* Consume from the HW TX FIFO first (real SM-exec
+                     * pio_sm_put ordering: TXF push, then OUT exec pops
+                     * it into X/Y). The driver's bit-count setup words
+                     * always arrive this way in the live path. */
+                    if (!fifo_pop(&s->tx_fifo, &drop)) {
+                        /* Bridge queue fallback (unit-test path that
+                         * writes TXF directly without a bridge-arm): */
+                        extern int w6300_pio_exec_out_drop(int pio_num, int sm);
+                        (void)w6300_pio_exec_out_drop(pio_num, sm);
+                    }
+                    break;
+                }
+            }
             s->exec_pending = 1;
             break;
         case 0x14:
@@ -908,6 +999,14 @@ void pio_write32(int pio_num, uint32_t offset, uint32_t val) {
                     fprintf(stderr, "[CYW43] Auto-detected PIO%d SM%d for gSPI\n",
                             pio_num, sm);
                 }
+            }
+            /* Notify W6300 PIO-QSPI bridge of OUT-base changes: arming
+             * is OUT base == 18 (driver's sm_config_set_out_pins(...,18,4),
+             * applied via pio_sm_set_config, not pio_sm_set_pindirs).
+             * Declared in w6300.h; no-op unless the pico-w6300 board is on. */
+            {
+                extern void w6300_pio_pinctrl(int pio_num, int sm);
+                w6300_pio_pinctrl(pio_num, sm);
             }
             break;
         default: break;
