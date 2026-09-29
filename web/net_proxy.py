@@ -7,6 +7,9 @@ sockets can work with real networking:
   UART bridge:  browser WS /uart  <-> TCP :9999 (use `nc localhost 9999`)
   GDB bridge:   browser WS /gdb   <-> TCP :3333 (arm-none-eabi-gdb target remote :3333)
   W5500 bridge: browser WS /w5500 <-> real TCP/UDP dialed on demand
+  (W6300 shares the same path and framing; the C pump tags IPv6
+  CONNECT with an 18-byte payload and SEND6 with a '6' flag byte —
+  see handle_w5500_from_browser)
   ETH mesh:     browser WS /eth   <-> broadcast to other browsers + optional TAP
 
 Protocol (binary WebSocket messages):
@@ -202,17 +205,27 @@ def handle_browser(conn, path):
         pass
 
 def handle_w5500_from_browser(ws_conn, data):
-    # Control + data messages from WASM W5500 live bridge:
-    #   CONNECT [0x43, sock, 6, 0, udp, a0, a1, a2, a3, port_lo, port_hi] (11B)
+    # Control + data messages from WASM W5500/W6300 live bridge:
+    #   CONNECT [0x43, sock, 6, 0, udp, a0, a1, a2, a3, port_lo, port_hi] (11B, IPv4)
+    #   CONNECT6[0x43, sock, 18, 0, udp, 16B ip6, port_lo, port_hi] (23B, W6300 IPv6)
     #   LISTEN  [0x4C, sock, port_lo, port_hi] (4B)
     #   CLOSE   [0x58, sock] (2B)
-    #   SEND    [0x57, sock, len_lo, len_hi, payload...]
+    #   SEND    [0x57, sock, len_lo, len_hi, payload...] (IPv4 payload as-is)
+    #   SEND6   [0x57, sock, len_lo, len_hi, '6', 16B ip6, port_lo, port_hi, payload...]
+    #           (23B header; UDP6 reply path only — TCP6 streams need no per-packet addr)
     # Replies: DATA [sock, len_lo, len_hi, payload], STATUS [0x53, sock, 1, code]
     try:
         if len(data) >= 11 and data[0] == 0x43:
+            is_v6 = len(data) >= 23 and data[2] == 18
             sock, udp = data[1], data[4]
-            ip = f"{data[5]}.{data[6]}.{data[7]}.{data[8]}"
-            port = data[9] | (data[10] << 8)
+            if is_v6:
+                ip = ":".join(f"{data[5 + 2 * i]:02x}{data[6 + 2 * i]:02x}" for i in range(8))
+                port = data[21] | (data[22] << 8)
+                fam = socket.AF_INET6
+            else:
+                ip = f"{data[5]}.{data[6]}.{data[7]}.{data[8]}"
+                port = data[9] | (data[10] << 8)
+                fam = socket.AF_INET
             key = (id(ws_conn), sock)
             old = hub.w5500_socks.pop(key, None)
             if old:
@@ -222,7 +235,7 @@ def handle_w5500_from_browser(ws_conn, data):
                     pass
             try:
                 st = socket.SOCK_DGRAM if udp else socket.SOCK_STREAM
-                s = socket.socket(socket.AF_INET, st)
+                s = socket.socket(fam, st)
                 s.setblocking(False)
                 if udp:
                     # connected UDP: remember dest, no handshake
@@ -280,14 +293,27 @@ def handle_w5500_from_browser(ws_conn, data):
         if len(data) >= 4 and data[0] == 0x57:
             sock = data[1]
             ln = data[2] | (data[3] << 8)
-            payload = data[4:4 + ln]
+            off = 4
+            dest = None
+            if len(data) >= 5 and data[4] == 0x36:  # '6': SEND6 v6 header
+                if len(data) < 23:
+                    return
+                ip6 = bytes(data[5:21])
+                port = data[21] | (data[22] << 8)
+                dest = (ip6, port)
+                off = 23
+                ln = len(data) - off
+            payload = data[off:off + ln]
             key = (id(ws_conn), sock)
             with hub.lock:
                 s = hub.w5500_socks.get(key)
             if s is None:
                 return
             try:
-                s.sendall(payload)
+                if dest is not None:
+                    s.sendto(payload, dest)
+                else:
+                    s.sendall(payload)
             except Exception as e:
                 print(f"[proxy w5500] send fail: {e}", flush=True)
             return

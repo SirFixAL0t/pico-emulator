@@ -107,15 +107,59 @@
 #define W6300_PHYCR0    0x301C  /* PHY control 0 (WO, PHY-unlock) */
 #define W6300_PHYCR1    0x301D  /* PHY control 1 (reset 0x40, PHY-unlock) */
 #define W6300_NETMR     0x4008  /* Network mode (IP4B bit0, IP6B bit1) */
+#define W6300_NETMR2    0x4009  /* Network mode 2 (PPPoE bit0, DHAS bit7) */
+#define W6300_NET4MR    0x4000  /* Network IPv4 mode (UNRB/PARP/RSTB/PB) */
+#define W6300_NET6MR    0x4004  /* Network IPv6 mode (UNRB/PARP/RSTB/PB) */
 #define W6300_SHAR0     0x4120  /* Source MAC (6B, NET-unlock) */
 #define W6300_GAR0      0x4130  /* Gateway IPv4 (4B, NET-unlock) */
 #define W6300_SUBR0     0x4134  /* Subnet mask (4B, NET-unlock) */
 #define W6300_SIPR0     0x4138  /* Source IPv4 (4B, NET-unlock) */
+#define W6300_LLAR0     0x4140  /* Link-local IPv6 (16B, NET-unlock) */
+#define W6300_GUAR0     0x4150  /* Global unicast IPv6 (16B, NET-unlock) */
+#define W6300_SUB6R0    0x4160  /* IPv6 subnet prefix (16B, NET-unlock) */
+#define W6300_GA6R0     0x4170  /* IPv6 gateway (16B) */
+#define W6300_SLDIP6R0  0x4180  /* Socket-less dest IPv6 (16B) */
+#define W6300_SLDIPR0   0x418C  /* Socket-less dest IPv4 (4B) */
+#define W6300_SLDHAR0   0x4190  /* Socket-less dest MAC (6B, RO) */
+#define W6300_PINGIDR   0x4198  /* Socket-less PING ID */
+#define W6300_PINGSEQR0 0x419C  /* Socket-less PING sequence (2B) */
+#define W6300_UIPR0     0x41A0  /* Unreachable IPv4 (4B, RO) */
+#define W6300_UPORTR0   0x41A4  /* Unreachable port (2B, RO) */
+#define W6300_UIP6R0    0x41B0  /* Unreachable IPv6 (16B, RO) */
+#define W6300_UPORT6R0  0x41C0  /* Unreachable IPv6 port (2B, RO) */
+#define W6300_INTPTMR0  0x41C5  /* INT pending time (2B) */
+#define W6300_PLR       0x41D0  /* RA prefix length (RO) */
+#define W6300_PFR       0x41D4  /* RA prefix flags (RO) */
+#define W6300_VLTR0     0x41D8  /* RA valid lifetime (4B, RO) */
+#define W6300_PLTR0     0x41DC  /* RA preferred lifetime (4B, RO) */
+#define W6300_PAR0      0x41E0  /* RA prefix address (16B, RO) */
+#define W6300_ICMP6BLKR 0x41F0  /* ICMPv6 block register */
 #define W6300_CHPLCKR   0x41F4  /* Chip lock (WO; 0xCE=unlock) */
 #define W6300_NETLCKR   0x41F5  /* Net lock (WO; 0x3A=unlock) */
 #define W6300_PHYLCKR   0x41F6  /* PHY lock (WO; 0x53=unlock) */
 #define W6300_RTR0      0x4200  /* Retry time (2B) */
 #define W6300_RCR       0x4204  /* Retry count */
+#define W6300_SLRTR0    0x4208  /* Socket-less retry time (2B) */
+#define W6300_SLRCR     0x420C  /* Socket-less retry count */
+#define W6300_SLHOPR    0x420F  /* Socket-less hop limit */
+#define W6300_TCNTR0    0x2016  /* Ticker counter (2B, RO) */
+#define W6300_TCNTRCLR  0x2020  /* Ticker counter clear (WO) */
+#define W6300_SLPSR     0x212C  /* Socket-less prefer source (AUTO/LLA/GUA) */
+
+/* NETMR bits (ioLibrary NETMR_ANB/M6B/WOL/IP6B/IP4B) */
+#define W6300_NETMR_IP4B (1u << 0)  /* 1 = block IPv4 packets */
+#define W6300_NETMR_IP6B (1u << 1)  /* 1 = block IPv6 packets */
+#define W6300_NETMR_WOL  (1u << 2)  /* Wake-on-LAN over UDP */
+#define W6300_NETMR_M6B  (1u << 4)  /* Block IPv6 multicast PING */
+#define W6300_NETMR_ANB  (1u << 5)  /* Block IPv6 all-node PING */
+/* NET4MR/NET6MR bits (ioLibrary NETxMR_UNRB/PARP/RSTB/PB) */
+#define W6300_NETXMR_PB   (1u << 0) /* Ping block */
+#define W6300_NETXMR_RSTB (1u << 1) /* TCP RST block */
+#define W6300_NETXMR_PARP (1u << 2) /* ARP before PING reply */
+#define W6300_NETXMR_UNRB (1u << 3) /* Unreachable block */
+/* NETMR2 bits (ioLibrary NETMR2_DHAS/PPPoE) */
+#define W6300_NETMR2_PPPoE (1u << 0)
+#define W6300_NETMR2_DHAS  (1u << 7) /* ARP-reply DST MAC select */
 
 /* SYSR bits */
 #define W6300_SYSR_CHPL (1u << 7)   /* 1 = chip regs locked */
@@ -135,19 +179,46 @@
 #define W6300_PHYSR_SPD (1u << 1)   /* 1 = 10M, 0 = 100M */
 #define W6300_PHYSR_DPX (1u << 2)   /* 1 = half, 0 = full */
 
+/* Common IR bits (ioLibrary IR_WOL/UNR6/IPCONF/UNR4/PTERM) */
+#define W6300_IR_PTERM  (1u << 0) /* PPPoE terminated */
+#define W6300_IR_UNR4   (1u << 1) /* Dest port unreachable (IPv4) */
+#define W6300_IR_IPCONF (1u << 2) /* SIPR conflict */
+#define W6300_IR_UNR6   (1u << 4) /* Dest port unreachable (IPv6) */
+#define W6300_IR_WOL    (1u << 7) /* Wake-on-LAN */
+
+/* Socket-less interrupt bits (ioLibrary SLIR_TOUT/ARP4/PING4/ARP6/...) */
+#define W6300_SLIR_RA    (1u << 0)
+#define W6300_SLIR_RS    (1u << 1)
+#define W6300_SLIR_NS    (1u << 2)
+#define W6300_SLIR_PING6 (1u << 3)
+#define W6300_SLIR_ARP6  (1u << 4)
+#define W6300_SLIR_PING4 (1u << 5)
+#define W6300_SLIR_ARP4  (1u << 6)
+#define W6300_SLIR_TOUT  (1u << 7)
+
 /* Socket-less commands (SLCR) */
 #define W6300_SLCR_ARP4     (1u << 6)
 #define W6300_SLCR_PING4    (1u << 5)
+#define W6300_SLCR_ARP6     (1u << 4)
+#define W6300_SLCR_PING6    (1u << 3)
+#define W6300_SLCR_NS       (1u << 2)
 #define W6300_SLCR_RS       (1u << 1)
 #define W6300_SLCR_UNA      (1u << 0)
+/* Socket-less prefer-source values (SLPSR / Sn_PSR: AUTO/LLA/GUA) */
+#define W6300_PSR_AUTO 0x00
+#define W6300_PSR_LLA  0x02
+#define W6300_PSR_GUA  0x03
 
 /* Socket register addresses (within socket-N block) */
 #define W6300_Sn_MR     0x0000
+#define W6300_Sn_PSR    0x0004  /* Prefer source IPv6 (AUTO/LLA/GUA) */
 #define W6300_Sn_CR     0x0010
 #define W6300_Sn_IR     0x0020
 #define W6300_Sn_IMR    0x0024
 #define W6300_Sn_IRCLR  0x0028
 #define W6300_Sn_SR     0x0030
+#define W6300_Sn_ESR    0x0031  /* Extension status (RO: TCPM/TCPOP/IP6T) */
+#define W6300_Sn_PNR    0x0100  /* IP protocol number (IPRAW) */
 #define W6300_Sn_PORTR0 0x0114  /* Source port (2B BE) */
 #define W6300_Sn_DHAR0  0x0118  /* Dest MAC (6B) */
 #define W6300_Sn_DIPR0  0x0120  /* Dest IPv4 (4B) */
@@ -155,6 +226,12 @@
 #define W6300_Sn_MSSR0  0x0110  /* Max segment size (2B) */
 #define W6300_Sn_TOSR   0x0104
 #define W6300_Sn_TTLR   0x0108
+#define W6300_Sn_FRGR0  0x010C  /* Fragment offset (2B) */
+#define W6300_Sn_DIP6R0 0x0130  /* Dest IPv6 (16B) */
+#define W6300_Sn_MR2    0x0144  /* Socket mode 2 (DHAM/FARP) */
+#define W6300_Sn_RTR0   0x0180  /* Socket retry time (2B) */
+#define W6300_Sn_RCR    0x0184  /* Socket retry count */
+#define W6300_Sn_KPALVTR 0x0188 /* Keep-alive timer */
 #define W6300_Sn_TX_BSR 0x0200  /* TX buffer size reg */
 #define W6300_Sn_TX_FSR0 0x0204 /* TX free size (2B RO) */
 #define W6300_Sn_TX_RD0 0x0208  /* TX read pointer (2B RO) */
@@ -167,16 +244,24 @@
 /* Socket register block span (largest used offset + 2) */
 #define W6300_SOCKET_REG_SIZE   0x0230
 
-/* Socket status values (same as W5500) */
+/* Socket status values (ioLibrary SOCK_*) */
 #define W6300_SOCK_CLOSED   0x00
 #define W6300_SOCK_INIT     0x13
 #define W6300_SOCK_LISTEN   0x14
 #define W6300_SOCK_SYNSENT  0x15
+#define W6300_SOCK_SYNRECV  0x16
 #define W6300_SOCK_ESTABLISHED 0x17
+#define W6300_SOCK_FIN_WAIT 0x18
+#define W6300_SOCK_CLOSING  0x1A
+#define W6300_SOCK_TIME_WAIT 0x1B
+#define W6300_SOCK_CLOSE_WAIT 0x1C
+#define W6300_SOCK_LAST_ACK 0x1D
 #define W6300_SOCK_UDP      0x22
+#define W6300_SOCK_IPRAW4   0x32
+#define W6300_SOCK_IPRAW6   0x33
 #define W6300_SOCK_MACRAW   0x42
 
-/* Socket commands */
+/* Socket commands (ioLibrary Sn_CR_*) */
 #define W6300_CMD_OPEN      0x01
 #define W6300_CMD_LISTEN    0x02
 #define W6300_CMD_CONNECT   0x04
@@ -185,17 +270,27 @@
 #define W6300_CMD_SEND      0x20
 #define W6300_CMD_SEND_KEEP 0x22
 #define W6300_CMD_RECV      0x40
+#define W6300_CMD_CONNECT6  0x84
+#define W6300_CMD_SEND6     0xA0
 
 /* Socket modes */
 #define W6300_MR_CLOSE  0x00
 #define W6300_MR_TCP    0x01    /* TCP4 */
 #define W6300_MR_UDP    0x02    /* UDP4 */
-#define W6300_MR_IPRAW  0x03
+#define W6300_MR_IPRAW  0x03    /* IPRAW4 */
 #define W6300_MR_MACRAW 0x07
 #define W6300_MR_TCP6   0x09
 #define W6300_MR_UDP6   0x0A
+#define W6300_MR_IPRAW6 0x0B
 #define W6300_MR_TCPD   0x0D
 #define W6300_MR_UDPD   0x0E
+/* Sn_MR2 bits (ioLibrary Sn_MR2_DHAM/FARP) */
+#define W6300_MR2_FARP  (1u << 0)
+#define W6300_MR2_DHAM  (1u << 1)
+/* Sn_ESR bits (ioLibrary Sn_ESR_TCPM/TCPOP/IP6T) */
+#define W6300_ESR_TCPM  (1u << 2) /* 1 = IPv6 TCP */
+#define W6300_ESR_TCPOP (1u << 1) /* 1 = client */
+#define W6300_ESR_IP6T  (1u << 0) /* 1 = GUA, 0 = LLA */
 
 /* Socket IR bits */
 #define W6300_IR_CON    0x01

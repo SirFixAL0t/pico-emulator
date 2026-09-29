@@ -270,6 +270,58 @@ static int w6300_mode_is_tcp(uint8_t mode) {
     return mode == W6300_MR_TCP || mode == W6300_MR_TCP6 || mode == W6300_MR_TCPD;
 }
 
+static int w6300_mode_is_ipraw(uint8_t mode) {
+    return mode == W6300_MR_IPRAW || mode == W6300_MR_IPRAW6;
+}
+
+/* True when this socket needs an IPv6 host path (pure-v6 modes).
+ * Dual-stack TCPD/UDPD pick the family per-transaction (DIP6R vs DIPR),
+ * so OPEN/CONNECT create AF_INET by default and upgrade on demand. */
+static int w6300_mode_is_v6(uint8_t mode) {
+    return mode == W6300_MR_TCP6 || mode == W6300_MR_UDP6 ||
+           mode == W6300_MR_IPRAW6;
+}
+
+static int w6300_mode_is_dual(uint8_t mode) {
+    return mode == W6300_MR_TCPD || mode == W6300_MR_UDPD;
+}
+
+/* Dual-stack destination select: nonzero DIP6R (16B) means IPv6 wins,
+ * else IPv4. Matches ioLibrary semantics where TCPD/UDPD sockets carry
+ * both DIPR and DIP6R and the stack picks by family. */
+static int w6300_sock_dest_is_v6(w6300_socket_t *s) {
+    for (int i = 0; i < 16; i++)
+        if (s->regs[W6300_Sn_DIP6R0 + i]) return 1;
+    return 0;
+}
+
+static void w6300_build_addr6(w6300_socket_t *s, struct sockaddr_in6 *addr) {
+    memset(addr, 0, sizeof(*addr));
+    addr->sin6_family = AF_INET6;
+    for (int i = 0; i < 16; i++)
+        addr->sin6_addr.s6_addr[i] = s->regs[W6300_Sn_DIP6R0 + i];
+    addr->sin6_port = htons((uint16_t)(((uint16_t)s->regs[W6300_Sn_DPORTR0] << 8) |
+                                       s->regs[W6300_Sn_DPORTR0 + 1]));
+}
+
+/* ESR mirrors the live transport: TCPM=IPv6 TCP, TCPOP=client (we only
+ * ever open client sockets), IP6T=GUA when the remote is not link-local
+ * (fe80::/10), else LLA. UDP/IPRAW leave ESR 0 (ioLibrary: valid on TCP
+ * only). */
+static void w6300_sock_update_esr(w6300_socket_t *s, int is_v6, int is_client) {
+    uint8_t esr = 0;
+    if (is_v6) {
+        esr |= W6300_ESR_TCPM;
+        if (is_client) esr |= W6300_ESR_TCPOP;
+        if ((s->regs[W6300_Sn_DIP6R0] & 0xFF) != 0xFE ||
+            (s->regs[W6300_Sn_DIP6R0 + 1] & 0xC0) != 0x80)
+            esr |= W6300_ESR_IP6T;
+    } else if (is_client) {
+        esr |= W6300_ESR_TCPOP;
+    }
+    s->regs[W6300_Sn_ESR] = esr;
+}
+
 static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
     w6300_socket_t *s = &dev->sockets[sock];
     uint8_t cmd = s->regs[W6300_Sn_CR];
@@ -279,31 +331,60 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
 
     switch (cmd) {
     case W6300_CMD_OPEN:
+        /* ioLibrary: Sn_RTR/Sn_RCR seed from RTR/RCR when 0 at OPEN. */
+        if (s->regs[W6300_Sn_RTR0] == 0 && s->regs[W6300_Sn_RTR0 + 1] == 0) {
+            s->regs[W6300_Sn_RTR0] = dev->common[W6300_RTR0];
+            s->regs[W6300_Sn_RTR0 + 1] = dev->common[W6300_RTR0 + 1];
+        }
+        if (s->regs[W6300_Sn_RCR] == 0)
+            s->regs[W6300_Sn_RCR] = dev->common[W6300_RCR];
+        /* ESR is live transport state: stale values must not survive
+         * across OPEN (ioLibrary: valid on TCP only, set at CONNECT). */
+        s->regs[W6300_Sn_ESR] = 0x00;
         if (w6300_mode_is_tcp(mode)) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_INIT;
             if (dev->live) {
                 w6300_close_host_sock(s);
-                s->host_fd = socket(AF_INET, SOCK_STREAM, 0);
+                if (w6300_mode_is_v6(mode)) {
+                    s->host_fd = socket(AF_INET6, SOCK_STREAM, 0);
+                } else {
+                    s->host_fd = socket(AF_INET, SOCK_STREAM, 0);
+                }
                 if (s->host_fd >= 0) set_sock_nonblock(s->host_fd);
             }
         } else if (w6300_mode_is_udp(mode)) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_UDP;
             if (dev->live) {
                 w6300_close_host_sock(s);
-                s->host_fd = socket(AF_INET, SOCK_DGRAM, 0);
+                if (w6300_mode_is_v6(mode)) {
+                    s->host_fd = socket(AF_INET6, SOCK_DGRAM, 0);
+                } else {
+                    s->host_fd = socket(AF_INET, SOCK_DGRAM, 0);
+                }
                 if (s->host_fd >= 0) {
                     set_sock_nonblock(s->host_fd);
                     uint16_t src_port = ((uint16_t)s->regs[W6300_Sn_PORTR0] << 8) |
                                         s->regs[W6300_Sn_PORTR0 + 1];
                     if (src_port > 0) {
-                        struct sockaddr_in bind_addr;
-                        memset(&bind_addr, 0, sizeof(bind_addr));
-                        bind_addr.sin_family = AF_INET;
-                        bind_addr.sin_addr.s_addr = INADDR_ANY;
-                        bind_addr.sin_port = htons(src_port);
-                        int opt = 1;
-                        setsockopt(s->host_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-                        bind(s->host_fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
+                        if (w6300_mode_is_v6(mode)) {
+                            struct sockaddr_in6 bind6;
+                            memset(&bind6, 0, sizeof(bind6));
+                            bind6.sin6_family = AF_INET6;
+                            bind6.sin6_addr = in6addr_any;
+                            bind6.sin6_port = htons(src_port);
+                            int opt = 1;
+                            setsockopt(s->host_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+                            bind(s->host_fd, (struct sockaddr *)&bind6, sizeof(bind6));
+                        } else {
+                            struct sockaddr_in bind_addr;
+                            memset(&bind_addr, 0, sizeof(bind_addr));
+                            bind_addr.sin_family = AF_INET;
+                            bind_addr.sin_addr.s_addr = INADDR_ANY;
+                            bind_addr.sin_port = htons(src_port);
+                            int opt = 1;
+                            setsockopt(s->host_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+                            bind(s->host_fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
+                        }
                     }
                 }
             }
@@ -311,6 +392,22 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_MACRAW;
             if (sock == 0)
                 w6300_macraw_attach(dev, sock);
+        } else if (w6300_mode_is_ipraw(mode)) {
+            /* IPRAW4/6: raw IP socket. Status mirrors the family so
+             * guests can tell them apart (ioLibrary SOCK_IPRAW4=0x32,
+             * SOCK_IPRAW6=0x33). Live host path dials in SEND paths. */
+            s->regs[W6300_Sn_SR] = (mode == W6300_MR_IPRAW6) ?
+                W6300_SOCK_IPRAW6 : W6300_SOCK_IPRAW4;
+            if (dev->live) {
+                w6300_close_host_sock(s);
+                if (mode == W6300_MR_IPRAW6)
+                    s->host_fd = socket(AF_INET6, SOCK_RAW,
+                        s->regs[W6300_Sn_PNR] ? s->regs[W6300_Sn_PNR] : IPPROTO_RAW);
+                else
+                    s->host_fd = socket(AF_INET, SOCK_RAW,
+                        s->regs[W6300_Sn_PNR] ? s->regs[W6300_Sn_PNR] : IPPROTO_RAW);
+                if (s->host_fd >= 0) set_sock_nonblock(s->host_fd);
+            }
         } else if (mode == W6300_MR_CLOSE) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
         }
@@ -333,19 +430,37 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         if (s->regs[W6300_Sn_SR] == W6300_SOCK_INIT) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_LISTEN;
             if (dev->live && s->host_fd >= 0) {
-                uint16_t src_port = ((uint16_t)s->regs[W6300_Sn_PORTR0] << 8) |
-                                    s->regs[W6300_Sn_PORTR0 + 1];
-                struct sockaddr_in bind_addr;
-                memset(&bind_addr, 0, sizeof(bind_addr));
-                bind_addr.sin_family = AF_INET;
-                bind_addr.sin_addr.s_addr = INADDR_ANY;
-                bind_addr.sin_port = htons(src_port);
-                int opt = 1;
-                setsockopt(s->host_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-                if (bind(s->host_fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) == 0 &&
-                    listen(s->host_fd, 1) == 0) {
-                    s->host_listen_fd = s->host_fd;
-                    s->host_fd = -1;
+                /* IPv6 LISTEN: the OPEN path created AF_INET6 for v6
+                 * modes; bind ::/port the same way. */
+                if (w6300_mode_is_v6(mode)) {
+                    struct sockaddr_in6 bind6;
+                    memset(&bind6, 0, sizeof(bind6));
+                    bind6.sin6_family = AF_INET6;
+                    bind6.sin6_addr = in6addr_any;
+                    bind6.sin6_port = htons((uint16_t)(((uint16_t)s->regs[W6300_Sn_PORTR0] << 8) |
+                                                      s->regs[W6300_Sn_PORTR0 + 1]));
+                    int opt = 1;
+                    setsockopt(s->host_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+                    if (bind(s->host_fd, (struct sockaddr *)&bind6, sizeof(bind6)) == 0 &&
+                        listen(s->host_fd, 1) == 0) {
+                        s->host_listen_fd = s->host_fd;
+                        s->host_fd = -1;
+                    }
+                } else {
+                    uint16_t src_port = ((uint16_t)s->regs[W6300_Sn_PORTR0] << 8) |
+                                        s->regs[W6300_Sn_PORTR0 + 1];
+                    struct sockaddr_in bind_addr;
+                    memset(&bind_addr, 0, sizeof(bind_addr));
+                    bind_addr.sin_family = AF_INET;
+                    bind_addr.sin_addr.s_addr = INADDR_ANY;
+                    bind_addr.sin_port = htons(src_port);
+                    int opt = 1;
+                    setsockopt(s->host_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+                    if (bind(s->host_fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) == 0 &&
+                        listen(s->host_fd, 1) == 0) {
+                        s->host_listen_fd = s->host_fd;
+                        s->host_fd = -1;
+                    }
                 }
             }
 #ifdef __EMSCRIPTEN__
@@ -361,43 +476,93 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         break;
 
     case W6300_CMD_CONNECT:
+    case W6300_CMD_CONNECT6:
+    {
+        int want_v6 = (cmd == W6300_CMD_CONNECT6) ||
+                      (w6300_mode_is_v6(mode) && !w6300_mode_is_dual(mode));
+        /* Dual-stack CONNECT (0x04) with a v6 destination upgrades to
+         * IPv6; pure-v4 modes (TCP/UDP/IPRAW4) always stay IPv4. */
+        if (cmd == W6300_CMD_CONNECT && w6300_mode_is_dual(mode) &&
+            w6300_sock_dest_is_v6(s))
+            want_v6 = 1;
         if (s->regs[W6300_Sn_SR] == W6300_SOCK_INIT) {
             if (dev->live && s->host_fd >= 0) {
-                struct sockaddr_in dest;
-                w6300_build_addr(s, &dest);
-                int rc = connect(s->host_fd, (struct sockaddr *)&dest, sizeof(dest));
-                if (rc == 0) {
-                    s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
-                } else if (errno == EINPROGRESS) {
-                    s->regs[W6300_Sn_SR] = W6300_SOCK_SYNSENT;
+                if (want_v6) {
+                    struct sockaddr_in6 dest6;
+                    w6300_build_addr6(s, &dest6);
+                    int rc = connect(s->host_fd, (struct sockaddr *)&dest6, sizeof(dest6));
+                    if (rc == 0) {
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
+                        w6300_sock_update_esr(s, 1, 1);
+                    } else if (errno == EINPROGRESS) {
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_SYNSENT;
+                        w6300_sock_update_esr(s, 1, 1);
+                    } else {
+                        fprintf(stderr, "[W6300] Socket %d connect6 failed: %s\n",
+                                sock, strerror(errno));
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+                    }
                 } else {
-                    fprintf(stderr, "[W6300] Socket %d connect failed: %s\n",
-                            sock, strerror(errno));
-                    s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+                    struct sockaddr_in dest;
+                    w6300_build_addr(s, &dest);
+                    int rc = connect(s->host_fd, (struct sockaddr *)&dest, sizeof(dest));
+                    if (rc == 0) {
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
+                        w6300_sock_update_esr(s, 0, 1);
+                    } else if (errno == EINPROGRESS) {
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_SYNSENT;
+                        w6300_sock_update_esr(s, 0, 1);
+                    } else {
+                        fprintf(stderr, "[W6300] Socket %d connect failed: %s\n",
+                                sock, strerror(errno));
+                        s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
+                    }
                 }
             } else {
                 s->regs[W6300_Sn_SR] = W6300_SOCK_ESTABLISHED;
+                w6300_sock_update_esr(s, want_v6, 1);
             }
 #ifdef __EMSCRIPTEN__
             if (dev->live) {
-                uint8_t msg[11];
-                msg[0] = 0x43; msg[1] = (uint8_t)(sock & 0xFF);
-                msg[2] = 6; msg[3] = 0;
-                msg[4] = w6300_mode_is_udp(mode) ? 1 : 0;
-                msg[5] = s->regs[W6300_Sn_DIPR0];
-                msg[6] = s->regs[W6300_Sn_DIPR0 + 1];
-                msg[7] = s->regs[W6300_Sn_DIPR0 + 2];
-                msg[8] = s->regs[W6300_Sn_DIPR0 + 3];
-                {
-                    int wport = ((int)s->regs[W6300_Sn_DPORTR0] << 8) |
-                                (int)s->regs[W6300_Sn_DPORTR0 + 1];
-                    msg[9] = (uint8_t)(wport & 0xFF);
-                    msg[10] = (uint8_t)((wport >> 8) & 0xFF);
+                if (want_v6) {
+                    /* CONNECT6: [0x43, sock, 18, 0, udp, 16B ip6, port_lo, port_hi].
+                     * Same 0x43 family as v4 so older proxies ignore the
+                     * length they don't know; updated net_proxy.py parses
+                     * both (len 11 = v4, len 21 = v6). */
+                    uint8_t msg[23];
+                    msg[0] = 0x43; msg[1] = (uint8_t)(sock & 0xFF);
+                    msg[2] = 18; msg[3] = 0;
+                    msg[4] = w6300_mode_is_udp(mode) ? 1 : 0;
+                    for (int i = 0; i < 16; i++)
+                        msg[5 + i] = s->regs[W6300_Sn_DIP6R0 + i];
+                    {
+                        int wport = ((int)s->regs[W6300_Sn_DPORTR0] << 8) |
+                                    (int)s->regs[W6300_Sn_DPORTR0 + 1];
+                        msg[21] = (uint8_t)(wport & 0xFF);
+                        msg[22] = (uint8_t)((wport >> 8) & 0xFF);
+                    }
+                    w6300_ws_tx_push(msg, 23);
+                } else {
+                    uint8_t msg[11];
+                    msg[0] = 0x43; msg[1] = (uint8_t)(sock & 0xFF);
+                    msg[2] = 6; msg[3] = 0;
+                    msg[4] = w6300_mode_is_udp(mode) ? 1 : 0;
+                    msg[5] = s->regs[W6300_Sn_DIPR0];
+                    msg[6] = s->regs[W6300_Sn_DIPR0 + 1];
+                    msg[7] = s->regs[W6300_Sn_DIPR0 + 2];
+                    msg[8] = s->regs[W6300_Sn_DIPR0 + 3];
+                    {
+                        int wport = ((int)s->regs[W6300_Sn_DPORTR0] << 8) |
+                                    (int)s->regs[W6300_Sn_DPORTR0 + 1];
+                        msg[9] = (uint8_t)(wport & 0xFF);
+                        msg[10] = (uint8_t)((wport >> 8) & 0xFF);
+                    }
+                    w6300_ws_tx_push(msg, 11);
                 }
-                w6300_ws_tx_push(msg, 11);
             }
 #endif
-        }
+        } /* if (INIT) */
+    } /* CONNECT/CONNECT6 */
         break;
 
     case W6300_CMD_DISCON:
@@ -420,7 +585,17 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
 #endif
         break;
 
-    case W6300_CMD_SEND: {
+    case W6300_CMD_SEND:
+    case W6300_CMD_SEND6:
+    {
+        /* SEND6 targets IPv6 explicitly; plain SEND on a dual socket
+         * follows the destination (DIP6R set => v6); pure-v6 modes are
+         * always v6. Pure-v4 stays v4. */
+        int is_v6 = (cmd == W6300_CMD_SEND6) ||
+                    (w6300_mode_is_v6(mode) && !w6300_mode_is_dual(mode));
+        if (cmd == W6300_CMD_SEND && w6300_mode_is_dual(mode) &&
+            w6300_sock_dest_is_v6(s))
+            is_v6 = 1;
         uint16_t tx_rd = ((uint16_t)s->regs[W6300_Sn_TX_RD0] << 8) |
                          s->regs[W6300_Sn_TX_RD0 + 1];
         uint16_t tx_wr = ((uint16_t)s->regs[W6300_Sn_TX_WR0] << 8) |
@@ -438,25 +613,78 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             for (uint16_t i = 0; i < data_len; i++) {
                 send_buf[i] = s->tx_buf[(tx_rd + i) % W6300_TX_BUF_SIZE];
             }
-            if (w6300_mode_is_udp(mode)) {
+            if (is_v6 || (w6300_mode_is_udp(mode) &&
+                           w6300_mode_is_dual(mode) &&
+                           w6300_sock_dest_is_v6(s))) {
+                struct sockaddr_in6 dest6;
+                w6300_build_addr6(s, &dest6);
+                sendto(s->host_fd, send_buf, data_len, 0,
+                       (struct sockaddr *)&dest6, sizeof(dest6));
+            } else if (w6300_mode_is_udp(mode)) {
                 struct sockaddr_in dest;
                 w6300_build_addr(s, &dest);
                 sendto(s->host_fd, send_buf, data_len, 0,
                        (struct sockaddr *)&dest, sizeof(dest));
+            } else if (w6300_mode_is_ipraw(mode)) {
+                /* IPRAW: raw IP datagram, protocol from Sn_PNR. Host
+                 * raw sockets need privilege; attempt and surface
+                 * TIMEOUT on failure like silicon would. */
+                if (is_v6) {
+                    struct sockaddr_in6 dest6;
+                    w6300_build_addr6(s, &dest6);
+                    if (sendto(s->host_fd, send_buf, data_len, 0,
+                               (struct sockaddr *)&dest6,
+                               sizeof(dest6)) < 0)
+                        s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+                } else {
+                    struct sockaddr_in dest;
+                    w6300_build_addr(s, &dest);
+                    if (sendto(s->host_fd, send_buf, data_len, 0,
+                               (struct sockaddr *)&dest,
+                               sizeof(dest)) < 0)
+                        s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+                }
             } else {
                 send(s->host_fd, send_buf, data_len, MSG_NOSIGNAL);
             }
         }
 #ifdef __EMSCRIPTEN__
         if (dev->live && data_len > 0) {
-            uint8_t hdr[4];
-            hdr[0] = 0x57; hdr[1] = (uint8_t)(sock & 0xFF);
-            hdr[2] = (uint8_t)(data_len & 0xFF);
-            hdr[3] = (uint8_t)((data_len >> 8) & 0xFF);
-            w6300_ws_tx_push(hdr, 4);
-            for (uint16_t i = 0; i < data_len; i++) {
-                uint8_t b = s->tx_buf[(tx_rd + i) % W6300_TX_BUF_SIZE];
-                w6300_ws_tx_push(&b, 1);
+            if (is_v6) {
+                /* SEND6: [0x57, sock, len_lo, len_hi, '6',
+                 * 16B ip6, port_lo, port_hi, payload...] (23B header).
+                 * Updated net_proxy.py parses flag '6' + 18B v6 header;
+                 * old proxies only understand the 4B header, so gate
+                 * this framing on __EMSCRIPTEN__ (native never emits
+                 * it). */
+                uint8_t hdr[23];
+                hdr[0] = 0x57; hdr[1] = (uint8_t)(sock & 0xFF);
+                hdr[2] = (uint8_t)(data_len & 0xFF);
+                hdr[3] = (uint8_t)((data_len >> 8) & 0xFF);
+                hdr[4] = 0x36; /* '6': IPv6 destination follows */
+                for (int i = 0; i < 16; i++)
+                    hdr[5 + i] = s->regs[W6300_Sn_DIP6R0 + i];
+                {
+                    int wport = ((int)s->regs[W6300_Sn_DPORTR0] << 8) |
+                                (int)s->regs[W6300_Sn_DPORTR0 + 1];
+                    hdr[21] = (uint8_t)(wport & 0xFF);
+                    hdr[22] = (uint8_t)((wport >> 8) & 0xFF);
+                }
+                w6300_ws_tx_push(hdr, 23);
+                for (uint16_t i = 0; i < data_len; i++) {
+                    uint8_t b = s->tx_buf[(tx_rd + i) % W6300_TX_BUF_SIZE];
+                    w6300_ws_tx_push(&b, 1);
+                }
+            } else {
+                uint8_t hdr[4];
+                hdr[0] = 0x57; hdr[1] = (uint8_t)(sock & 0xFF);
+                hdr[2] = (uint8_t)(data_len & 0xFF);
+                hdr[3] = (uint8_t)((data_len >> 8) & 0xFF);
+                w6300_ws_tx_push(hdr, 4);
+                for (uint16_t i = 0; i < data_len; i++) {
+                    uint8_t b = s->tx_buf[(tx_rd + i) % W6300_TX_BUF_SIZE];
+                    w6300_ws_tx_push(&b, 1);
+                }
             }
         }
 #endif
@@ -464,6 +692,32 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         s->regs[W6300_Sn_TX_RD0 + 1] = s->regs[W6300_Sn_TX_WR0 + 1];
         s->regs[W6300_Sn_TX_FSR0] = (W6300_TX_BUF_SIZE >> 8) & 0xFF;
         s->regs[W6300_Sn_TX_FSR0 + 1] = W6300_TX_BUF_SIZE & 0xFF;
+        s->regs[W6300_Sn_IR] |= W6300_IR_SENDOK;
+        break;
+    }
+
+    case W6300_CMD_SEND_KEEP:
+    {
+        /* Keep-alive: 1-byte probe on an ESTABLISHED TCP socket.
+         * Live path sends a single 0x00 byte (kernel KA would need
+         * SO_KEEPALIVE tuning; this matches W5500-equivalent behavior
+         * of surfacing SENDOK). Offline: just flag SENDOK. */
+        if (dev->live && s->host_fd >= 0 &&
+            s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED) {
+            uint8_t probe = 0x00;
+            if (w6300_mode_is_v6(mode)) {
+                struct sockaddr_in6 peer6;
+                socklen_t plen = sizeof(peer6);
+                if (getpeername(s->host_fd, (struct sockaddr *)&peer6,
+                                &plen) == 0)
+                    sendto(s->host_fd, &probe, 1, 0,
+                           (struct sockaddr *)&peer6, plen);
+                else
+                    send(s->host_fd, &probe, 1, MSG_NOSIGNAL);
+            } else {
+                send(s->host_fd, &probe, 1, MSG_NOSIGNAL);
+            }
+        }
         s->regs[W6300_Sn_IR] |= W6300_IR_SENDOK;
         break;
     }
@@ -570,9 +824,18 @@ static uint8_t w6300_read_common(w6300_t *dev, uint16_t addr) {
     case W6300_SYSR:  return w6300_sysr(dev);
     case W6300_PHYSR: return w6300_physr();
     case W6300_SIR: {
+        /* Masked: a socket bit shows only when its Sn_IR has a bit
+         * the guest enabled in Sn_IMR AND the socket is enabled in
+         * SIMR. (Global IEN gates only the INTn pin, not the SIR
+         * register itself — ioLibrary polls SIR with IEN=0.) */
         uint8_t sir = 0;
-        for (int i = 0; i < W6300_NUM_SOCKETS; i++)
-            if (dev->sockets[i].regs[W6300_Sn_IR]) sir |= (uint8_t)(1u << i);
+        for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
+            uint8_t ir = dev->sockets[i].regs[W6300_Sn_IR];
+            uint8_t imr = dev->sockets[i].regs[W6300_Sn_IMR];
+            if ((ir & imr) == 0) continue;
+            if ((dev->common[W6300_SIMR] & (1u << i)) == 0) continue;
+            sir |= (uint8_t)(1u << i);
+        }
         return sir;
     }
     default:
@@ -633,20 +896,49 @@ static void w6300_write_common(w6300_t *dev, uint16_t addr, uint8_t val) {
     case W6300_SLCR:
         /* Socket-less commands complete instantly in the model. */
         dev->common[W6300_SLCR] = 0x00;
-        if (val & W6300_SLCR_ARP4)  dev->common[W6300_SLIR] |= 0x40;
-        if (val & W6300_SLCR_PING4) dev->common[W6300_SLIR] |= 0x20;
-        if (val & W6300_SLCR_RS)    dev->common[W6300_SLIR] |= 0x02;
+        if (val & W6300_SLCR_ARP4)  dev->common[W6300_SLIR] |= W6300_SLIR_ARP4;
+        if (val & W6300_SLCR_PING4) dev->common[W6300_SLIR] |= W6300_SLIR_PING4;
+        if (val & W6300_SLCR_ARP6)  dev->common[W6300_SLIR] |= W6300_SLIR_ARP6;
+        if (val & W6300_SLCR_PING6) dev->common[W6300_SLIR] |= W6300_SLIR_PING6;
+        if (val & W6300_SLCR_NS)    dev->common[W6300_SLIR] |= W6300_SLIR_NS;
+        if (val & W6300_SLCR_RS)    dev->common[W6300_SLIR] |= W6300_SLIR_RS;
+        if (val & W6300_SLCR_UNA) {
+            /* UNA (neighbor Unreachability detection): silicon sends NS
+             * and reports via NS; model completes instantly the same. */
+            dev->common[W6300_SLIR] |= W6300_SLIR_NS;
+        }
         w6300_board_refresh_int();
+        return;
+    case W6300_TCNTRCLR:
+        dev->common[W6300_TCNTR0] = 0x00;
+        dev->common[W6300_TCNTR0 + 1] = 0x00;
         return;
     default:
         break;
     }
-    /* Network registers need NET-unlock (SHAR/GAR/SUBR/SIPR). */
+    /* Network registers need NET-unlock: IPv4 SHAR/GAR/SUBR/SIPR plus
+     * the IPv6 block LLAR/GUAR/SUB6R (ioLibrary: NETLOCK covers GAR,
+     * SUBR, SHAR, SIPR, LLAR, GUAR, SUB6R). GA6R, the socket-less
+     * destination/ping registers and the ICMP unreach latches are
+     * outside the lock mechanism (GA6R explicitly excluded). */
     if ((addr >= W6300_SHAR0 && addr < W6300_SHAR0 + 6) ||
         (addr >= W6300_GAR0 && addr < W6300_GAR0 + 4) ||
         (addr >= W6300_SUBR0 && addr < W6300_SUBR0 + 4) ||
-        (addr >= W6300_SIPR0 && addr < W6300_SIPR0 + 4)) {
+        (addr >= W6300_SIPR0 && addr < W6300_SIPR0 + 4) ||
+        (addr >= W6300_LLAR0 && addr < W6300_LLAR0 + 16) ||
+        (addr >= W6300_GUAR0 && addr < W6300_GUAR0 + 16) ||
+        (addr >= W6300_SUB6R0 && addr < W6300_SUB6R0 + 16)) {
         if (dev->net_locked) return;
+    }
+    /* Read-only network state: RA info, ICMP unreach latches, SLDHAR. */
+    if ((addr >= W6300_SLDHAR0 && addr < W6300_SLDHAR0 + 6) ||
+        (addr >= W6300_UIPR0 && addr < W6300_UIPR0 + 4) ||
+        (addr >= W6300_UPORTR0 && addr < W6300_UPORTR0 + 2) ||
+        (addr >= W6300_UIP6R0 && addr < W6300_UIP6R0 + 16) ||
+        (addr >= W6300_UPORT6R0 && addr < W6300_UPORT6R0 + 2) ||
+        (addr >= W6300_PLR && addr <= W6300_PAR0 + 15) ||
+        addr == W6300_TCNTR0 || addr == W6300_TCNTR0 + 1) {
+        return;
     }
     if (addr < sizeof(dev->common)) {
         dev->common[addr] = val;
@@ -687,6 +979,7 @@ static uint8_t w6300_read_sock(w6300_t *dev, int sock, uint16_t addr) {
 static void w6300_write_sock(w6300_t *dev, int sock, uint16_t addr, uint8_t val) {
     w6300_socket_t *s = &dev->sockets[sock];
     if (addr == W6300_Sn_SR) return;           /* read-only */
+    if (addr == W6300_Sn_ESR) return;          /* read-only (TCP live state) */
     /* Sn_IR is write-1-to-clear on real silicon (the Arduino driver
      * uses setSn_IR(Sn_IR_RECV) at the top of every readFrameSize to
      * re-arm the RX flag; a plain store would be ignored... and the
@@ -835,6 +1128,11 @@ void w6300_init(w6300_t *dev) {
     dev->common[W6300_RTR0]     = 0x07;
     dev->common[W6300_RTR0 + 1] = 0xD0;
     dev->common[W6300_RCR] = 0x08;
+    dev->common[W6300_SLRTR0]     = 0x07;
+    dev->common[W6300_SLRTR0 + 1] = 0xD0;
+    dev->common[W6300_SLRCR] = 0x00;
+    dev->common[W6300_SLHOPR] = 0x80;
+    dev->common[W6300_SIMR] = 0xFF;  /* all sockets unmasked at reset */
 
     /* Default MAC: 02:00:00:00:00:01 (same convention as W5500 model) */
     dev->common[W6300_SHAR0]     = 0x02;
@@ -859,6 +1157,7 @@ void w6300_init(w6300_t *dev) {
         s->regs[W6300_Sn_RX_BSR] = 4;  /* 4KB */
         s->regs[W6300_Sn_TX_BSR] = 4;  /* 4KB */
         s->regs[W6300_Sn_TTLR] = 128;
+        s->regs[W6300_Sn_IMR] = 0xFF;  /* datasheet reset: all socket IRQs unmasked */
         s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
         s->regs[W6300_Sn_TX_FSR0] = (W6300_TX_BUF_SIZE >> 8) & 0xFF;
         s->regs[W6300_Sn_TX_FSR0 + 1] = W6300_TX_BUF_SIZE & 0xFF;
@@ -1057,13 +1356,26 @@ void w6300_poll(w6300_t *dev) {
 
         if (s->host_fd >= 0 &&
             (s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED ||
-             s->regs[W6300_Sn_SR] == W6300_SOCK_UDP)) {
+              s->regs[W6300_Sn_SR] == W6300_SOCK_UDP)) {
 
             uint16_t rx_rsr = ((uint16_t)s->regs[W6300_Sn_RX_RSR0] << 8) |
                               s->regs[W6300_Sn_RX_RSR0 + 1];
             uint16_t free_space = W6300_RX_BUF_SIZE - rx_rsr;
             if (free_space == 0) continue;
 
+            /* IPv6 sockets speak recvfrom/recv on an AF_INET6 fd; the
+             * UDP header layout is identical (WIZnet packs the v4-mapped
+             * 4B source for v4 and the raw 16B for v6 — the ioLibrary
+             * UDP6 path consumes DIP6R-indexed reads, so store the peer
+             * bytes the same way: 8B v4 header, 24B v6 header). */
+            int sock_is_v6 = 0;
+            {
+                struct sockaddr_storage ss;
+                socklen_t sl = sizeof(ss);
+                if (getsockname(s->host_fd, (struct sockaddr *)&ss,
+                                &sl) == 0 && ss.ss_family == AF_INET6)
+                    sock_is_v6 = 1;
+            }
             struct pollfd pfd = { .fd = s->host_fd, .events = POLLIN };
             if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
                 uint16_t rx_wr = ((uint16_t)s->regs[W6300_Sn_RX_WR0] << 8) |
@@ -1071,11 +1383,35 @@ void w6300_poll(w6300_t *dev) {
 
                 uint8_t tmp[W6300_RX_BUF_SIZE];
                 int is_udp = (s->regs[W6300_Sn_SR] == W6300_SOCK_UDP);
-                uint8_t hdr[8];
+                uint8_t hdr[24];
                 int hl = 0;
                 ssize_t n = -1;
                 if (is_udp) {
-                    if (free_space > 8) {
+                    if (sock_is_v6) {
+                        if (free_space > 24) {
+                            struct sockaddr_in6 src6;
+                            socklen_t slen = sizeof(src6);
+                            size_t room = (size_t)free_space - 24;
+                            if (room > sizeof(tmp)) room = sizeof(tmp);
+                            n = recvfrom(s->host_fd, tmp, room,
+                                         0, (struct sockaddr *)&src6, &slen);
+                            if (n > 0) {
+                                for (int i = 0; i < 16; i++)
+                                    hdr[i] = src6.sin6_addr.s6_addr[i];
+                                uint16_t sport = ntohs(src6.sin6_port);
+                                hdr[16] = (sport >> 8) & 0xFF; hdr[17] = sport & 0xFF;
+                                hdr[18] = 0; hdr[19] = 0;
+                                hdr[20] = ((uint16_t)n >> 8) & 0xFF; hdr[21] = (uint16_t)n & 0xFF;
+                                hl = 22;
+                                /* Mirror the peer into DIP6R/DPORTR so a
+                                 * SEND6 reply goes back where it came. */
+                                for (int i = 0; i < 16; i++)
+                                    s->regs[W6300_Sn_DIP6R0 + i] = hdr[i];
+                                s->regs[W6300_Sn_DPORTR0] = hdr[16];
+                                s->regs[W6300_Sn_DPORTR0 + 1] = hdr[17];
+                            }
+                        }
+                    } else if (free_space > 8) {
                         struct sockaddr_in src;
                         socklen_t slen = sizeof(src);
                         size_t room = (size_t)free_space - 8;
@@ -1276,16 +1612,31 @@ static void w6300_qspi_push_byte(int pio_num, int sm, uint8_t b);
 /* (w6300_pio_cs_assert is defined once at file end, after the bridge
  * state storage.) */
 
+/* INTn pin state: active-low, masked by the silicon chain
+ *   Sn_IR[n] & Sn_IMR[n] -> SIR[n] & SIMR[n] -> INTn,
+ * plus common IR & IMR -> INTn — all ANDed with global IEN
+ * (SYCR1 bit7). w6300_board_refresh_int() runs on every register
+ * path that can change an IR bit (shared by the PL022 path and the
+ * PIO-QSPI bridge, which both funnel through w6300_read/write_byte);
+ * w6300_board_update_int() is the poll-loop entry with the same
+ * computation. */
+static int w6300_int_pending(w6300_t *dev) {
+    if ((dev->common[W6300_SYCR1] & W6300_SYCR1_IEN) == 0) return 0;
+    if (dev->common[W6300_IR] & dev->common[W6300_IMR]) return 1;
+    if (dev->common[W6300_SLIR] & dev->common[W6300_SLIMR]) return 1;
+    for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
+        uint8_t ir = dev->sockets[i].regs[W6300_Sn_IR];
+        uint8_t imr = dev->sockets[i].regs[W6300_Sn_IMR];
+        if ((ir & imr) == 0) continue;
+        if ((dev->common[W6300_SIMR] & (1u << i)) == 0) continue;
+        return 1;
+    }
+    return 0;
+}
+
 static void w6300_board_refresh_int(void) {
     if (!w6300_board_on) return;
-    int pending = 0;
-    for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
-        if (w6300_board_dev_state.sockets[i].regs[W6300_Sn_IR]) {
-            pending = 1;
-            break;
-        }
-    }
-    if (w6300_board_dev_state.common[W6300_IR]) pending = 1;
+    int pending = w6300_int_pending(&w6300_board_dev_state);
     gpio_set_direction(W6300_BOARD_INT_PIN, 0);
     gpio_mark_driven(W6300_BOARD_INT_PIN);
     gpio_set_input_pin(W6300_BOARD_INT_PIN, pending ? 0 : 1);
@@ -1297,14 +1648,7 @@ w6300_t *w6300_board_dev(void) { return &w6300_board_dev_state; }
 
 void w6300_board_update_int(void) {
     if (!w6300_board_on) return;
-    int pending = 0;
-    for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
-        if (w6300_board_dev_state.sockets[i].regs[W6300_Sn_IR]) {
-            pending = 1;
-            break;
-        }
-    }
-    if (w6300_board_dev_state.common[W6300_IR]) pending = 1;
+    int pending = w6300_int_pending(&w6300_board_dev_state);
     gpio_set_direction(W6300_BOARD_INT_PIN, 0);
     gpio_mark_driven(W6300_BOARD_INT_PIN);
     gpio_set_input_pin(W6300_BOARD_INT_PIN, pending ? 0 : 1);

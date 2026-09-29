@@ -6729,6 +6729,223 @@ TEST(test_w6300_discon) {
     PASS();
 }
 
+TEST(test_w6300_ipraw_open_status) {
+    /* ioLibrary: IPRAW4 OPEN -> SOCK_IPRAW4 (0x32), IPRAW6 -> 0x33. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_IPRAW);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_IPRAW4, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "IPRAW4 OPEN should reach SOCK_IPRAW4");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_IPRAW6);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_IPRAW6, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "IPRAW6 OPEN should reach SOCK_IPRAW6");
+    PASS();
+}
+
+TEST(test_w6300_open_seeds_retry_and_clears_esr) {
+    /* ioLibrary: Sn_RTR/Sn_RCR seed from RTR/RCR when 0 at OPEN; ESR
+     * is live TCP state, cleared at OPEN. */
+    w6300_t dev;
+    w6300_init(&dev);
+    dev.sockets[1].regs[W6300_Sn_ESR] = 0xFF;
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(0x07, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_RTR0),
+              "Sn_RTR hi should seed from RTR");
+    ASSERT_EQ(0xD0, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_RTR0 + 1),
+              "Sn_RTR lo should seed from RTR");
+    ASSERT_EQ(0x08, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_RCR),
+              "Sn_RCR should seed from RCR");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_ESR),
+              "ESR should clear at OPEN");
+    /* Explicit per-socket values survive OPEN (no reseed). */
+    test_w6300_reg_write(&dev, 1, W6300_Sn_RTR0, 0x12);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_RTR0 + 1, 0x34);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_RCR, 0x05);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(0x12, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_RTR0),
+              "explicit Sn_RTR hi survives OPEN");
+    ASSERT_EQ(0x05, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_RCR),
+              "explicit Sn_RCR survives OPEN");
+    PASS();
+}
+
+TEST(test_w6300_connect6_esr) {
+    /* CONNECT6 on a TCP6 socket (stub, offline): ESTABLISHED + ESR
+     * TCPM|TCPOP|IP6T for a GUA remote. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP6);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_INIT, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "TCP6 OPEN should reach INIT");
+    /* Remote 2001:db8::1 (GUA, not fe80::/10). */
+    uint8_t dip6[16] = {0x20,0x01,0x0D,0xB8,0,0,0,0,0,0,0,0,0,0,0,0x01};
+    for (int i = 0; i < 16; i++)
+        test_w6300_reg_write(&dev, 1, W6300_Sn_DIP6R0 + i, dip6[i]);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT6);
+    ASSERT_EQ(W6300_SOCK_ESTABLISHED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "CONNECT6 (stub) should reach ESTABLISHED");
+    ASSERT_EQ(W6300_ESR_TCPM | W6300_ESR_TCPOP | W6300_ESR_IP6T,
+              (int)test_w6300_reg_read(&dev, 1, W6300_Sn_ESR),
+              "ESR should be TCPM|TCPOP|IP6T for GUA remote");
+    /* Link-local remote -> LLA (IP6T clear). */
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP6);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    uint8_t lla[16] = {0xFE,0x80,0,0,0,0,0,0,0,0,0,0,0,0,0,0x01};
+    for (int i = 0; i < 16; i++)
+        test_w6300_reg_write(&dev, 1, W6300_Sn_DIP6R0 + i, lla[i]);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT6);
+    ASSERT_EQ(W6300_ESR_TCPM | W6300_ESR_TCPOP,
+              (int)test_w6300_reg_read(&dev, 1, W6300_Sn_ESR),
+              "ESR should be TCPM|TCPOP for LLA remote");
+    PASS();
+}
+
+TEST(test_w6300_dual_connect_selects_family) {
+    /* TCPD CONNECT (0x04) follows the destination: DIP6R set -> v6
+     * (ESR TCPM set), all-zero DIP6R -> v4 (ESR TCPM clear). */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCPD);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    ASSERT_EQ(W6300_SOCK_INIT, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "TCPD OPEN should reach INIT");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    ASSERT_EQ(0, (int)(test_w6300_reg_read(&dev, 1, W6300_Sn_ESR) & W6300_ESR_TCPM),
+              "TCPD CONNECT with v4 dest should be IPv4");
+    uint8_t dip6[16] = {0x20,0x01,0x0D,0xB8,0,0,0,0,0,0,0,0,0,0,0,0x02};
+    for (int i = 0; i < 16; i++)
+        test_w6300_reg_write(&dev, 1, W6300_Sn_DIP6R0 + i, dip6[i]);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCPD);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_ESR) & W6300_ESR_TCPM,
+                "TCPD CONNECT with v6 dest should be IPv6");
+    PASS();
+}
+
+TEST(test_w6300_send6_sendok) {
+    /* SEND6 on a UDP6 socket (offline): SENDOK + FSR restored. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_UDP6);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(2, 1));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    for (int i = 0; i < 32; i++) w6300_spi_xfer(&dev, (uint8_t)(0xA0 + i));
+    w6300_spi_cs(&dev, 0);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0 + 1, 32);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND6);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK,
+                "SENDOK after SEND6");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_CR),
+              "CR auto-clears after SEND6");
+    PASS();
+}
+
+TEST(test_w6300_send_keep_sendok) {
+    /* SEND_KEEP on an ESTABLISHED TCP socket (offline): SENDOK. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    ASSERT_EQ(W6300_SOCK_ESTABLISHED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "CONNECT (stub) should reach ESTABLISHED");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND_KEEP);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK,
+                "SENDOK after SEND_KEEP");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_CR),
+              "CR auto-clears after SEND_KEEP");
+    PASS();
+}
+
+TEST(test_w6300_ipv6_net_regs_lock) {
+    /* LLAR/GUAR/SUB6R need NET-unlock like SHAR/GAR/SUBR/SIPR;
+     * GA6R and socket-less dest regs do not. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 0, W6300_LLAR0, 0xFE);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_LLAR0),
+              "LLAR locked at reset");
+    test_w6300_reg_write(&dev, 0, W6300_GA6R0, 0x20);
+    ASSERT_EQ(0x20, (int)test_w6300_reg_read(&dev, 0, W6300_GA6R0),
+              "GA6R writable without unlock");
+    test_w6300_reg_write(&dev, 0, W6300_NETLCKR, W6300_NET_UNLOCK);
+    test_w6300_reg_write(&dev, 0, W6300_LLAR0, 0xFE);
+    test_w6300_reg_write(&dev, 0, W6300_LLAR0 + 1, 0x80);
+    test_w6300_reg_write(&dev, 0, W6300_GUAR0 + 15, 0x01);
+    test_w6300_reg_write(&dev, 0, W6300_SUB6R0 + 7, 0xFF);
+    ASSERT_EQ(0xFE, (int)test_w6300_reg_read(&dev, 0, W6300_LLAR0),
+              "LLAR writable after unlock");
+    ASSERT_EQ(0x80, (int)test_w6300_reg_read(&dev, 0, W6300_LLAR0 + 1),
+              "LLAR+1 writable after unlock");
+    ASSERT_EQ(0x01, (int)test_w6300_reg_read(&dev, 0, W6300_GUAR0 + 15),
+              "GUAR+15 writable after unlock");
+    ASSERT_EQ(0xFF, (int)test_w6300_reg_read(&dev, 0, W6300_SUB6R0 + 7),
+              "SUB6R+7 writable after unlock");
+    /* Read-only latches ignore writes. */
+    test_w6300_reg_write(&dev, 0, W6300_UIPR0, 0xAA);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_UIPR0),
+              "UIPR is read-only");
+    test_w6300_reg_write(&dev, 0, W6300_PLR, 0x40);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_PLR),
+              "PLR is read-only");
+    PASS();
+}
+
+TEST(test_w6300_slcr_full_bits) {
+    /* Every SLCR bit raises its SLIR flag (instant completion). */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 0, W6300_SLCR,
+        W6300_SLCR_ARP4 | W6300_SLCR_PING4 | W6300_SLCR_ARP6 |
+        W6300_SLCR_PING6 | W6300_SLCR_NS | W6300_SLCR_RS | W6300_SLCR_UNA);
+    uint8_t slir = test_w6300_reg_read(&dev, 0, W6300_SLIR);
+    ASSERT_EQ(W6300_SLIR_ARP4 | W6300_SLIR_PING4 | W6300_SLIR_ARP6 |
+              W6300_SLIR_PING6 | W6300_SLIR_NS | W6300_SLIR_RS,
+              (int)slir, "all SLCR bits should raise SLIR");
+    test_w6300_reg_write(&dev, 0, W6300_SLIRCLR, 0xFF);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_SLIR),
+              "SLIRCLR should clear SLIR");
+    PASS();
+}
+
+TEST(test_w6300_sir_masked) {
+    /* SIR shows only sockets whose Sn_IR passes Sn_IMR and SIMR. */
+    w6300_t dev;
+    w6300_init(&dev);
+    dev.sockets[1].regs[W6300_Sn_IR] = W6300_IR_RECV;
+    dev.sockets[3].regs[W6300_Sn_IR] = W6300_IR_SENDOK;
+    /* Default masks (IMR/SIMR/Sn_IMR all set at reset): both visible. */
+    ASSERT_EQ((1u << 1) | (1u << 3), (int)test_w6300_reg_read(&dev, 0, W6300_SIR),
+              "SIR should show sock1+sock3 by default");
+    /* Mask sock3's RECV... SENDOK bit in Sn_IMR: bit clears. */
+    dev.sockets[3].regs[W6300_Sn_IMR] &= (uint8_t)~W6300_IR_SENDOK;
+    ASSERT_EQ((1u << 1), (int)test_w6300_reg_read(&dev, 0, W6300_SIR),
+              "SIR should hide sock3 after Sn_IMR mask");
+    /* Mask sock1 at SIMR: hidden too. */
+    dev.common[W6300_SIMR] &= (uint8_t)~(1u << 1);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_SIR),
+              "SIR should hide sock1 after SIMR mask");
+    PASS();
+}
+
+TEST(test_w6300_sn_esr_readonly) {
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_ESR, 0xFF);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_ESR),
+              "Sn_ESR writes ignored (RO)");
+    PASS();
+}
+
 TEST(test_w6300_sn_ir_w1c_via_irclr) {
     w6300_t dev;
     w6300_init(&dev);
@@ -6877,12 +7094,21 @@ TEST(test_board_w6300_int_assert_clear) {
     w5500_board_detach();
     w6300_board_attach(0, 0);
     w6300_t *bd = w6300_board_dev();
+    /* Masked chain: Sn_IR & Sn_IMR -> SIR[n] & SIMR[n] -> INTn (IEN).
+     * Enable the RECV bit through every gate for socket 2. */
+    bd->sockets[2].regs[W6300_Sn_IMR] = W6300_IR_RECV;
+    bd->common[W6300_SIMR] = (1u << 2);
     bd->sockets[2].regs[W6300_Sn_IR] = W6300_IR_RECV;
     w6300_board_update_int();
     ASSERT_EQ(0, (int)gpio_get_pin(15), "INTn GPIO15 should be low with IRQ pending");
     bd->sockets[2].regs[W6300_Sn_IR] = 0x00;
     w6300_board_update_int();
     ASSERT_EQ(1, (int)gpio_get_pin(15), "INTn GPIO15 should be high when idle");
+    /* Masked off: same IR bit, SIMR gate closed -> pin stays high. */
+    bd->common[W6300_SIMR] = 0x00;
+    bd->sockets[2].regs[W6300_Sn_IR] = W6300_IR_RECV;
+    w6300_board_update_int();
+    ASSERT_EQ(1, (int)gpio_get_pin(15), "INTn masked by SIMR should stay high");
     w6300_board_detach();
     PASS();
 }
@@ -8957,6 +9183,16 @@ int main(void) {
     RUN_TEST(test_w6300_live_udp_open_creates_host_socket);
     RUN_TEST(test_w6300_live_close_cleans_host_socket);
     RUN_TEST(test_w6300_discon);
+    RUN_TEST(test_w6300_ipraw_open_status);
+    RUN_TEST(test_w6300_open_seeds_retry_and_clears_esr);
+    RUN_TEST(test_w6300_connect6_esr);
+    RUN_TEST(test_w6300_dual_connect_selects_family);
+    RUN_TEST(test_w6300_send6_sendok);
+    RUN_TEST(test_w6300_send_keep_sendok);
+    RUN_TEST(test_w6300_ipv6_net_regs_lock);
+    RUN_TEST(test_w6300_slcr_full_bits);
+    RUN_TEST(test_w6300_sir_masked);
+    RUN_TEST(test_w6300_sn_esr_readonly);
     RUN_TEST(test_w6300_sn_ir_w1c_via_irclr);
     RUN_TEST(test_w6300_macraw_gateway_path);
     RUN_TEST(test_board_w6300_off_by_default);

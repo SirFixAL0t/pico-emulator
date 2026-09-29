@@ -2,6 +2,28 @@
 
 ## [Unreleased] - 2026-09-29
 
+### Added - W6300 full feature completion (IPv6 regs, dual-stack, masks, retry)
+
+Closes every documented W6300 gap (same-as-W5500 items now done too):
+IPv6 common block LLAR/GUAR/SUB6R/GA6R + SLDIP6R/SLDIPR/SLDHAR/PINGIDR/
+PINGSEQR/UIPR/UPORTR/UIP6R/UPORT6R/INTPTMR/PLR/PFR/VLTR/PLTR/PAR/ICMP6BLKR
++ NET4MR/NET6MR/NETMR2 + socket Sn_PSR/Sn_ESR/Sn_PNR/Sn_FRGR/Sn_DIP6R/
+Sn_MR2/Sn_RTR/Sn_RCR/Sn_KPALVTR (all with ioLibrary addresses; NET-lock
+covers LLAR/GUAR/SUB6R; RA/ICMP latches read-only); socket statuses
+SYNRECV/FIN_WAIT/CLOSING/TIME_WAIT/CLOSE_WAIT/LAST_ACK + SOCK_IPRAW4/6;
+CONNECT6/SEND6/SEND_KEEP (dual CONNECT/SEND follow DIP6R-vs-DIPR);
+IPRAW4/6 OPEN with PNR protocol + TIMEOUT-on-fail SEND; OPEN seeds
+Sn_RTR/Sn_RCR from RTR/RCR and clears ESR; ESR mirrors TCPM/TCPOP/IP6T
+(LLA vs GUA via fe80::/10); masked INT chain Sn_IR&Sn_IMR→SIR&SIMR→INTn
+(+common IR&IMR, SLIR&SLIMR, IEN gate; Sn_IMR=0xFF/SIMR=0xFF reset
+defaults); full SLCR/SLIR bit set (ARP4/PING4/ARP6/PING6/NS/RS/UNA→NS)
++ TCNTR/TCNTRCLR; live AF_INET6 host sockets (TCP/UDP OPEN/LISTEN/
+CONNECT/SEND/poll-RX with 22B v6 UDP header + DIP6R mirror) and WASM
+pump CONNECT6/SEND6 framing + net_proxy.py v6 parse/dial/sendto;
+10 new unit tests; 460/460 tests; sweep 70/70; M0+/M33 Arduino DORA
+still green; RV32 in-tree guests untouched, sweep-locked.
+IPRAW host sockets need privilege (TIMEOUT surfaced, documented).
+
 ### Added - W6300 Arduino PIO-QSPI bridge (full DORA on M0+ and M33)
 
 The Arduino `W6300lwIP` driver moves every byte through a PIO state
