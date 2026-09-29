@@ -2,6 +2,23 @@
 
 ## [Unreleased] - 2026-09-29
 
+### Added - W6300 offload RX path (RECV commit, live RSR, common OOB)
+
+Offload sockets (TCP/UDP/IPRAW) finally consume RX like silicon:
+RECV commits the guest's RX_RD advance (pulled = RX_RD − rx_base,
+clamped to RSR; RSR==0 is a no-op so Arduino's post-burst RECV never
+fabricates bytes; drain clears RECV with level semantics); offload
+RX_RSR recomputes live from RX_WR − RX_RD (poll appends vs guest
+consumes); offload RX-buffer reads are linear-window (rx_buf[addr],
+no length-prefix framing); RX-buffer writes are ignored (read-only
+on silicon); PL022 cursor latch generalized to all sockets. Also
+fixes a real heap OOB: common[] was 0x4205 bytes but SLRTR/SLRCR/
+SLHOPR live at 0x4208–0x420F (now 0x4210); netinet/tcp.h include
+guarded for Emscripten. 1 new unit test (offload_recv_commit);
+470/470 tests; sweep 70/70; WASM + threads rebuilt,
+test-wasm/ble/gateway PASS. RV32 stays sweep-locked via in-tree
+IPv4 guests (untouched).
+
 ### Added - W6300 silicon-parity round 2 (SEND guards, KPALVTR, WOL, TTL/MSS)
 
 SEND/SEND_KEEP from an invalid state raise TIMEOUT with no SENDOK

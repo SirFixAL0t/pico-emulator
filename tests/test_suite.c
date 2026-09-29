@@ -7306,6 +7306,52 @@ TEST(test_w6300_live_udp6_loopback_echo) {
     PASS();
 }
 
+TEST(test_w6300_offload_recv_commit) {
+    /* Offload RECV commits the RX_RD advance (ioLibrary rhythm):
+     * payload stays after bare RECV (RX_RD==base), drains after the
+     * guest advances RX_RD + RECV; RSR tracks live; RECV clears IR. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_TCP);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_CONNECT);
+    ASSERT_EQ(W6300_SOCK_ESTABLISHED, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_SR),
+              "CONNECT (stub) should reach ESTABLISHED");
+    w6300_socket_t *s = &dev.sockets[0];
+    s->rx_buf[0] = 0xAA; s->rx_buf[1] = 0xBB;
+    s->rx_buf[2] = 0xCC; s->rx_buf[3] = 0xDD;
+    s->rx_base = 0;
+    s->regs[W6300_Sn_RX_RD0] = 0x00; s->regs[W6300_Sn_RX_RD0 + 1] = 0x00;
+    s->regs[W6300_Sn_RX_WR0] = 0x00; s->regs[W6300_Sn_RX_WR0 + 1] = 0x04;
+    s->regs[W6300_Sn_RX_RSR0] = 0x00; s->regs[W6300_Sn_RX_RSR0 + 1] = 0x04;
+    s->regs[W6300_Sn_IR] |= W6300_IR_RECV;
+    /* Guest reads the 4 bytes at absolute 0 (linear window). */
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(3, 0));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    ASSERT_EQ(0xAA, (int)w6300_spi_xfer(&dev, 0xFF), "RX byte0");
+    ASSERT_EQ(0xBB, (int)w6300_spi_xfer(&dev, 0xFF), "RX byte1");
+    ASSERT_EQ(0xCC, (int)w6300_spi_xfer(&dev, 0xFF), "RX byte2");
+    ASSERT_EQ(0xDD, (int)w6300_spi_xfer(&dev, 0xFF), "RX byte3");
+    w6300_spi_cs(&dev, 0);
+    /* Bare RECV (no RX_RD advance): queue intact, IR stays. */
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_RECV);
+    ASSERT_EQ(0x04, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0 + 1),
+              "bare RECV must not drain");
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_RECV,
+                "RECV bit stays while queued");
+    /* ioLibrary rhythm: advance RX_RD past the 4 bytes, then RECV. */
+    test_w6300_reg_write(&dev, 1, W6300_Sn_RX_RD0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_RX_RD0 + 1, 0x04);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_RECV);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0 + 1),
+              "RX_RD-advance RECV should drain");
+    ASSERT_TRUE(!(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_RECV),
+                "RECV bit clears when empty");
+    PASS();
+}
+
 TEST(test_w6300_macraw_gateway_path) {    reset_cpu();
     w6300_board_detach();
     vnet_init();
@@ -9522,6 +9568,7 @@ int main(void) {
     RUN_TEST(test_w6300_live_udp6_loopback_echo);
     RUN_TEST(test_w6300_send6_sendok);
     RUN_TEST(test_w6300_send_keep_sendok);
+    RUN_TEST(test_w6300_offload_recv_commit);
     RUN_TEST(test_w6300_send_bad_state_timeout);
     RUN_TEST(test_w6300_kpalvtr_auto_probe);
     RUN_TEST(test_w6300_wol_magic_packet);

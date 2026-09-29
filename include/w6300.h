@@ -329,9 +329,10 @@ typedef struct {
 /* W6300 device state */
 typedef struct {
     /* Common registers: sparse 16-bit space, kept as flat array over
-     * 0x0000..0x4204 (0x4205 bytes). Only decoded offsets are live;
-     * the rest reads 0. ~17KB per device, allocated statically. */
-    uint8_t common[0x4205];
+     * 0x0000..0x420F (0x4210 bytes: highest decoded reg is SLHOPR @
+     * 0x420F). Only decoded offsets are live; the rest reads 0.
+     * ~17KB per device, allocated statically. */
+    uint8_t common[0x4210];
 
     w6300_socket_t sockets[W6300_NUM_SOCKETS];
 

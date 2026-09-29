@@ -30,7 +30,14 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#ifndef __EMSCRIPTEN__
 #include <netinet/tcp.h>
+#else
+/* Emscripten's libc lacks netinet/tcp.h: only TCP_MAXSEG is needed. */
+#ifndef TCP_MAXSEG
+#define TCP_MAXSEG 2
+#endif
+#endif
 #include <arpa/inet.h>
 #include "w6300.h"
 #include "vnet.h"
@@ -931,7 +938,7 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
     case W6300_CMD_RECV:
         if (mode == W6300_MR_MACRAW && sock == 0 && dev->vnet_port >= 0) {
             uint16_t rx_rd = ((uint16_t)s->regs[W6300_Sn_RX_RD0] << 8) |
-                             s->regs[W6300_Sn_RX_RD0 + 1];
+                              s->regs[W6300_Sn_RX_RD0 + 1];
             uint16_t rx_rsr = ((uint16_t)s->regs[W6300_Sn_RX_RSR0] << 8) |
                               s->regs[W6300_Sn_RX_RSR0 + 1];
             W6300_TR("RECV MACRAW rd=0x%04X rsr=%u base=0x%04X cursor=%s0x%04X",
@@ -985,9 +992,43 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             }
             break;
         }
-        s->regs[W6300_Sn_RX_RSR0] = 0;
-        s->regs[W6300_Sn_RX_RSR0 + 1] = 0;
-        break;
+        /* Offload sockets (TCP/UDP/IPRAW): RECV commits the guest's
+         * RX_RD advance, exactly like the W5500 model. ioLibrary
+         * recv() reads N bytes at RX_RD then issues RECV; the guest's
+         * RX_RD write is the consumption cursor, so commit it:
+         *   pulled = RX_RD - rx_base (clamped to RSR)
+         *   rx_base = RX_RD; RSR -= pulled; RX_WR = base + RSR.
+         * RSR==0 is a no-op (must NOT touch IR: Arduino issues RECV
+         * after every burst including the header-only read). When the
+         * queue drains, clear RECV (level semantics) and refresh INTn.
+         * Bare RECV with RX_RD == rx_base (guest never touches RX_RD)
+         * cannot know the consumed length: leave the queue intact so a
+         * later RX_RD-advance RECV can commit it (never fabricate or
+         * drop bytes). */
+        {
+            uint16_t rx_rd = ((uint16_t)s->regs[W6300_Sn_RX_RD0] << 8) |
+                             s->regs[W6300_Sn_RX_RD0 + 1];
+            uint16_t rx_rsr = ((uint16_t)s->regs[W6300_Sn_RX_RSR0] << 8) |
+                              s->regs[W6300_Sn_RX_RSR0 + 1];
+            s->rx_cursor_valid = 0;
+            if (rx_rsr == 0) break;
+            if (rx_rd != s->rx_base) {
+                uint16_t pulled = (uint16_t)(rx_rd - s->rx_base);
+                if (pulled > rx_rsr) pulled = rx_rsr;
+                uint16_t remain = (uint16_t)(rx_rsr - pulled);
+                s->rx_base = rx_rd;
+                uint16_t tail = (uint16_t)(rx_rd + remain);
+                s->regs[W6300_Sn_RX_WR0]     = (tail >> 8) & 0xFF;
+                s->regs[W6300_Sn_RX_WR0 + 1] = tail & 0xFF;
+                s->regs[W6300_Sn_RX_RSR0]     = (remain >> 8) & 0xFF;
+                s->regs[W6300_Sn_RX_RSR0 + 1] = remain & 0xFF;
+                if (remain == 0)
+                    s->regs[W6300_Sn_IR] &= (uint8_t)~W6300_IR_RECV;
+                break;
+            }
+            /* RX_RD == base: nothing consumed — keep the queue. */
+            break;
+        }
 
     default:
         break;
@@ -1177,6 +1218,23 @@ static uint8_t w6300_read_sock(w6300_t *dev, int sock, uint16_t addr) {
         uint16_t free = used >= cap ? 0 : (uint16_t)(cap - used);
         return (addr == W6300_Sn_TX_FSR0) ? (free >> 8) & 0xFF : free & 0xFF;
     }
+    if (addr == W6300_Sn_RX_RSR0 || addr == W6300_Sn_RX_RSR0 + 1) {
+        /* Offload RX_RSR mirrors the unconsumed queue (rx_base..RX_WR),
+         * not a stale stored value: poll() appends at RX_WR while the
+         * guest consumes via RX_RD+RECV. Recompute from the pointers
+         * so polling guests never see a stuck size. */
+        uint16_t rx_rd = ((uint16_t)s->regs[W6300_Sn_RX_RD0] << 8) |
+                         s->regs[W6300_Sn_RX_RD0 + 1];
+        uint16_t rx_wr = ((uint16_t)s->regs[W6300_Sn_RX_WR0] << 8) |
+                         s->regs[W6300_Sn_RX_WR0 + 1];
+        uint16_t live;
+        if (s->regs[W6300_Sn_MR] == W6300_MR_MACRAW)
+            live = ((uint16_t)s->regs[W6300_Sn_RX_RSR0] << 8) |
+                   s->regs[W6300_Sn_RX_RSR0 + 1];
+        else
+            live = (uint16_t)(rx_wr - rx_rd);
+        return (addr == W6300_Sn_RX_RSR0) ? (live >> 8) & 0xFF : live & 0xFF;
+    }
     if (addr < W6300_SOCKET_REG_SIZE)
         return s->regs[addr];
     return 0x00;
@@ -1250,6 +1308,13 @@ static uint8_t w6300_read_byte(w6300_t *dev, uint8_t bsb, uint16_t addr) {
                 uint16_t off = (uint16_t)(addr - ms->rx_cursor_base);
                 return ms->rx_buf[(base + off) % W6300_RX_BUF_SIZE];
             }
+            /* Offload sockets (TCP/UDP/IPRAW): linear window reads.
+             * Offload RX is a byte stream without length-prefix framing,
+             * so head-relative addressing would corrupt multi-burst reads
+             * once rx_base advances: the guest addresses RX bytes by
+             * absolute VDM offset (ioLibrary: getSn_RX_RD() + read_data
+             * at that offset), and poll() appends linearly at the same
+             * absolute offsets. Serve rx_buf[addr] directly. */
             return dev->sockets[sock].rx_buf[addr % W6300_RX_BUF_SIZE];
         }
         return 0x00;
@@ -1296,21 +1361,13 @@ static void w6300_write_byte(w6300_t *dev, uint8_t bsb, uint16_t addr,
         break;
     case 3:
         if (sock >= 0 && sock < W6300_NUM_SOCKETS) {
-            if (sock == 0 &&
-                dev->sockets[sock].regs[W6300_Sn_MR] == W6300_MR_MACRAW &&
-                dev->sockets[sock].regs[W6300_Sn_SR] == W6300_SOCK_MACRAW) {
-                w6300_socket_t *ms = &dev->sockets[sock];
-                /* First RX-buffer read of a CS frame latches the VDM
-                 * cursor (mirrors the PL022 path's rx_cursor_base in
-                 * w6300_spi_xfer). The cursor cannot latch at CS-assert
-                 * time because the frame's address phase hasn't arrived
-                 * yet; latch here when the bridge serves the first byte. */
-                if (!ms->rx_cursor_valid) {
-                    ms->rx_cursor_base = addr;
-                    ms->rx_cursor_valid = 1;
-                }
-            } else {
-                dev->sockets[sock].rx_buf[addr % W6300_RX_BUF_SIZE] = val;
+            /* RX buffer is read-only on silicon (writes are ignored);
+             * latch the VDM cursor for offload streams too so the
+             * head-relative read path serves the right bytes. */
+            w6300_socket_t *ms = &dev->sockets[sock];
+            if (!ms->rx_cursor_valid) {
+                ms->rx_cursor_base = addr;
+                ms->rx_cursor_valid = 1;
             }
         }
         break;
@@ -1415,10 +1472,10 @@ uint8_t w6300_spi_xfer(void *ctx, uint8_t mosi) {
         } else {
             int type = blk_type(dev->bsb);
             int sock = blk_socket(dev->bsb);
-            if (type == 3 && sock == 0 &&
-                !dev->sockets[0].rx_cursor_valid) {
-                dev->sockets[0].rx_cursor_base = dev->addr;
-                dev->sockets[0].rx_cursor_valid = 1;
+            if (type == 3 && sock >= 0 && sock < W6300_NUM_SOCKETS &&
+                !dev->sockets[sock].rx_cursor_valid) {
+                dev->sockets[sock].rx_cursor_base = dev->addr;
+                dev->sockets[sock].rx_cursor_valid = 1;
             }
             miso = w6300_read_byte(dev, dev->bsb, dev->addr);
         }
