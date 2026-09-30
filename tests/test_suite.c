@@ -6746,6 +6746,41 @@ TEST(test_w6300_ipraw_open_status) {
     PASS();
 }
 
+TEST(test_w6300_ipraw_send_needs_privilege) {
+    /* Offline (no privilege, no host fd) IPRAW SEND must raise TIMEOUT
+     * with no SENDOK — never silently claim success when no kernel
+     * accepted the datagram. Covers both families. */
+    w6300_t dev;
+    w6300_init(&dev);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_IPRAW);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    w6300_spi_cs(&dev, 1);
+    w6300_spi_xfer(&dev, W6300_OPCODE(2, 1));
+    w6300_spi_xfer(&dev, 0x00); w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x00);
+    w6300_spi_xfer(&dev, 0x45);
+    w6300_spi_cs(&dev, 0);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0 + 1, 1);
+    ASSERT_EQ(-1, dev.sockets[0].host_fd, "offline IPRAW has no host fd");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_TIMEOUT,
+                "IPRAW4 SEND without privilege should raise TIMEOUT");
+    ASSERT_TRUE(!(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK),
+                "no SENDOK when no kernel accepted the datagram");
+    test_w6300_reg_write(&dev, 1, W6300_Sn_MR, W6300_MR_IPRAW6);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_OPEN);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_TX_WR0 + 1, 1);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_IRCLR, 0xFF);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_SEND6);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_TIMEOUT,
+                "IPRAW6 SEND6 without privilege should raise TIMEOUT");
+    ASSERT_TRUE(!(test_w6300_reg_read(&dev, 1, W6300_Sn_IR) & W6300_IR_SENDOK),
+                "no SENDOK for IPRAW6 without privilege");
+    PASS();
+}
+
 TEST(test_w6300_open_seeds_retry_and_clears_esr) {
     /* ioLibrary: Sn_RTR/Sn_RCR seed from RTR/RCR when 0 at OPEN; ESR
      * is live TCP state, cleared at OPEN. */
@@ -7007,19 +7042,121 @@ TEST(test_w6300_ipv6_net_regs_lock) {
 }
 
 TEST(test_w6300_slcr_full_bits) {
-    /* Every SLCR bit raises its SLIR flag (instant completion). */
+    /* Solicited SLCR bits raise their SLIR flag (instant completion);
+     * RS arms the RA capture instead (SLIR_RS comes from the wire RA,
+     * DS 7.6.6). SLRCR==0 forces TOUT for every solicited command. */
     w6300_t dev;
     w6300_init(&dev);
+    dev.common[W6300_SLRCR] = 0x05;
     test_w6300_reg_write(&dev, 0, W6300_SLCR,
         W6300_SLCR_ARP4 | W6300_SLCR_PING4 | W6300_SLCR_ARP6 |
-        W6300_SLCR_PING6 | W6300_SLCR_NS | W6300_SLCR_RS | W6300_SLCR_UNA);
+        W6300_SLCR_PING6 | W6300_SLCR_NS | W6300_SLCR_UNA);
     uint8_t slir = test_w6300_reg_read(&dev, 0, W6300_SLIR);
     ASSERT_EQ(W6300_SLIR_ARP4 | W6300_SLIR_PING4 | W6300_SLIR_ARP6 |
-              W6300_SLIR_PING6 | W6300_SLIR_NS | W6300_SLIR_RS,
-              (int)slir, "all SLCR bits should raise SLIR");
+              W6300_SLIR_PING6 | W6300_SLIR_NS,
+              (int)slir, "solicited SLCR bits should raise SLIR");
     test_w6300_reg_write(&dev, 0, W6300_SLIRCLR, 0xFF);
     ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_SLIR),
               "SLIRCLR should clear SLIR");
+    /* RS arms capture without raising SLIR_RS itself. */
+    test_w6300_reg_write(&dev, 0, W6300_SLCR, W6300_SLCR_RS);
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_SLIR),
+              "SLCR_RS must not raise SLIR_RS directly");
+    ASSERT_EQ(0x01, (int)dev.sl_rs_pending, "SLCR_RS should arm RA capture");
+    test_w6300_reg_write(&dev, 0, W6300_SLIRCLR, 0xFF);
+    /* SLRCR==0: solicited commands time out (DS 7.7.1 single-shot). */
+    dev.common[W6300_SLRCR] = 0x00;
+    test_w6300_reg_write(&dev, 0, W6300_SLCR, W6300_SLCR_ARP4);
+    ASSERT_EQ(W6300_SLIR_TOUT, (int)test_w6300_reg_read(&dev, 0, W6300_SLIR),
+              "SLRCR==0 should raise SLIR_TOUT");
+    PASS();
+}
+
+TEST(test_w6300_rs_ra_capture) {
+    /* Solicited RS + live RA off MACRAW latches PLR/PFR/VLTR/PLTR/PAR
+     * and raises SLIR_RS (DS 7.6.6/Fig.28); unsolicited RAs do not. */
+    w6300_t dev;
+    w6300_init(&dev);
+    dev.common[W6300_SLRCR] = 0x05;
+    dev.sockets[0].regs[W6300_Sn_MR] = W6300_MR_MACRAW;
+    dev.sockets[0].regs[W6300_Sn_SR] = W6300_SOCK_MACRAW;
+    extern void w6300_macraw_vnet_rx_test(w6300_t *dev, int sock,
+                                          const uint8_t *frame, int len);
+    /* Unsolicited RA first: lands in RX but touches no RA state. */
+    uint8_t ra[14 + 40 + 48];
+    memset(ra, 0, sizeof(ra));
+    memcpy(ra, dev.common + W6300_SHAR0, 6);
+    ra[12] = 0x86; ra[13] = 0xDD;
+    ra[14] = 0x60; ra[14 + 6] = 58;
+    ra[14 + 40] = 134; /* RA */
+    ra[14 + 40 + 16] = 3; ra[14 + 40 + 17] = 4; /* prefix-info, len 4 */
+    ra[14 + 40 + 16 + 2] = 64;                  /* prefix length */
+    ra[14 + 40 + 16 + 3] = 0xC0;                /* L+A flags */
+    ra[14 + 40 + 16 + 4] = 0; ra[14 + 40 + 16 + 5] = 1;
+    ra[14 + 40 + 16 + 6] = 0x35; ra[14 + 40 + 16 + 7] = 0x80; /* valid 5000 */
+    ra[14 + 40 + 16 + 8] = 0; ra[14 + 40 + 16 + 9] = 0;
+    ra[14 + 40 + 16 + 10] = 0x0E; ra[14 + 40 + 16 + 11] = 0x10; /* pref 3600 */
+    ra[14 + 40 + 16 + 16] = 0xFD; ra[14 + 40 + 16 + 17] = 0x00;
+    ra[14 + 40 + 16 + 18] = 0x00; ra[14 + 40 + 16 + 19] = 0x04;
+    w6300_macraw_vnet_rx_test(&dev, 0, ra, sizeof(ra));
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_SLIR),
+              "unsolicited RA must not raise SLIR_RS");
+    ASSERT_EQ(0x00, (int)test_w6300_reg_read(&dev, 0, W6300_PLR),
+              "unsolicited RA must not latch PLR");
+    /* Solicit, then the same RA latches everything. */
+    test_w6300_reg_write(&dev, 0, W6300_SLCR, W6300_SLCR_RS);
+    w6300_macraw_vnet_rx_test(&dev, 0, ra, sizeof(ra));
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 0, W6300_SLIR) & W6300_SLIR_RS,
+                "solicited RA should raise SLIR_RS");
+    ASSERT_EQ(64, (int)test_w6300_reg_read(&dev, 0, W6300_PLR),
+              "PLR should latch prefix length 64");
+    ASSERT_EQ(0xC0, (int)test_w6300_reg_read(&dev, 0, W6300_PFR),
+              "PFR should latch flags");
+    ASSERT_EQ(0xFD, (int)test_w6300_reg_read(&dev, 0, W6300_PAR0),
+              "PAR should latch fd00:4:: prefix");
+    ASSERT_EQ(0x00, (int)dev.sl_rs_pending, "capture should disarm RS");
+    PASS();
+}
+
+TEST(test_w6300_slcr_busy_and_rs_tout) {
+    /* DS 7.6: one socket-less command at a time — a second SLCR while
+     * RS is armed is ignored. DS 7.7.1: the armed RS raises SLIR_TOUT
+     * after SLRTR x (SLRCR+1) poll ticks with no RA. */
+    w6300_t dev;
+    w6300_init(&dev);
+    dev.live = 1;  /* poll() early-outs when not live */
+    dev.common[W6300_SLRCR] = 0x01;
+    dev.common[W6300_SLRTR0] = 0x00;
+    dev.common[W6300_SLRTR0 + 1] = 0x0A;  /* 10x100us -> 1 tick/attempt */
+    extern void w6300_poll(w6300_t *dev);
+    test_w6300_reg_write(&dev, 0, W6300_SLCR, W6300_SLCR_RS);
+    ASSERT_EQ(0x01, (int)dev.sl_rs_pending, "RS should arm");
+    /* Second command while busy: ignored (no ARP4 bit, still armed). */
+    test_w6300_reg_write(&dev, 0, W6300_SLCR, W6300_SLCR_ARP4);
+    ASSERT_EQ(0x00, (int)(test_w6300_reg_read(&dev, 0, W6300_SLIR) &
+                          W6300_SLIR_ARP4),
+              "busy SLCR write must be ignored");
+    ASSERT_EQ(0x01, (int)dev.sl_rs_pending, "RS still armed after busy write");
+    /* Non-RS commands don't hold the bus: ARP4 then PING4 back-to-back. */
+    {
+        w6300_t d2;
+        w6300_init(&d2);
+        d2.common[W6300_SLRCR] = 0x01;
+        test_w6300_reg_write(&d2, 0, W6300_SLCR, W6300_SLCR_ARP4);
+        test_w6300_reg_write(&d2, 0, W6300_SLCR, W6300_SLCR_PING4);
+        ASSERT_EQ(W6300_SLIR_ARP4 | W6300_SLIR_PING4,
+                  (int)test_w6300_reg_read(&d2, 0, W6300_SLIR),
+                  "back-to-back non-RS commands must both complete");
+    }
+    w6300_poll(&dev);
+    ASSERT_EQ(0x00, (int)(test_w6300_reg_read(&dev, 0, W6300_SLIR) &
+                          W6300_SLIR_TOUT),
+              "1 tick of 2 should not time out");
+    w6300_poll(&dev);
+    ASSERT_TRUE(test_w6300_reg_read(&dev, 0, W6300_SLIR) & W6300_SLIR_TOUT,
+                "budget exhausted -> SLIR_TOUT");
+    ASSERT_EQ(0x00, (int)dev.sl_rs_pending, "TOUT should disarm RS");
+    dev.live = 0;
     PASS();
 }
 
@@ -7231,7 +7368,7 @@ TEST(test_w6300_live_dual_tcp6_loopback) {
 
 TEST(test_w6300_live_udp6_loopback_echo) {
     /* Live UDP6 pair: guest socket sends to a bound ::1 peer and the
-     * reply arrives with a 22B v6 header + DIP6R mirror. */
+     * reply arrives with a 20B PACKET INFO + DIP6R mirror. */
     int peer = socket(AF_INET6, SOCK_DGRAM, 0);
     if (peer < 0) PASS();  /* no IPv6 stack: skip */
     struct sockaddr_in6 pa;
@@ -7284,7 +7421,9 @@ TEST(test_w6300_live_udp6_loopback_echo) {
         else usleep(5000);
     }
     ASSERT_TRUE(got, "peer should receive UDP6 payload");
-    /* Reply; guest poll should surface 22B header + payload + mirror. */
+    /* Reply; guest poll should surface PACKET INFO + payload + mirror.
+     * Silicon layout (DS Fig.19/Table 4): 20B PACKET INFO = flags/len(2B)
+     * + DST IPv6(16B) + DST port(2B), then DATA. */
     sendto(peer, pbuf, 2, 0, (struct sockaddr *)&src6, sl6);
     extern void w6300_poll(w6300_t *dev);
     int seen = 0;
@@ -7296,9 +7435,13 @@ TEST(test_w6300_live_udp6_loopback_echo) {
     ASSERT_TRUE(seen, "guest should see RECV after UDP6 reply");
     uint16_t rsr = ((uint16_t)dev.sockets[0].regs[W6300_Sn_RX_RSR0] << 8) |
                    dev.sockets[0].regs[W6300_Sn_RX_RSR0 + 1];
-    ASSERT_EQ(24, (int)rsr, "UDP6 RX should be 22B header + 2B payload");
-    ASSERT_EQ(0x00, (int)dev.sockets[0].rx_buf[0], "DIP6R mirror byte0 (::1)");
-    ASSERT_EQ(0x01, (int)dev.sockets[0].rx_buf[15], "DIP6R mirror byte15 (::1)");
+    ASSERT_EQ(22, (int)rsr, "UDP6 RX should be 20B PACKET INFO + 2B payload");
+    ASSERT_EQ(0x80, (int)dev.sockets[0].rx_buf[0],
+              "PACKET INFO flags should show IPv6, GUA, len-hi=0");
+    ASSERT_EQ(0x02, (int)dev.sockets[0].rx_buf[1],
+              "PACKET INFO len-lo should be 2");
+    ASSERT_EQ(0x00, (int)dev.sockets[0].rx_buf[2], "DST IPv6 byte0 (::1)");
+    ASSERT_EQ(0x01, (int)dev.sockets[0].rx_buf[17], "DST IPv6 byte15 (::1)");
     if (dev.sockets[0].host_fd >= 0) close(dev.sockets[0].host_fd);
     dev.sockets[0].host_fd = -1;
     dev.live = 0;
@@ -7418,6 +7561,48 @@ TEST(test_w6300_macraw_gateway_path) {    reset_cpu();
     rsr = ((uint16_t)test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0) << 8) |
           test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0 + 1);
     ASSERT_EQ(0, (int)rsr, "RSR should be 0 after RECV");
+    vnet_cleanup();
+    PASS();
+}
+
+TEST(test_w6300_netmr_block_bits) {
+    /* NETMR_IP4B/IP6B drop that family at the MACRAW wire (silicon
+     * behavior): with IP6B set, an IPv6 frame never lands; IPv4 still
+     * does, and vice versa. Uses direct dispatch (no vnet attach:
+     * earlier MACRAW tests already consume the 2 attach slots). */
+    reset_cpu();
+    w6300_board_detach();
+    vnet_init();
+    w6300_t dev;
+    w6300_init(&dev);
+    /* Fake an attached MACRAW socket without consuming an attach slot. */
+    dev.sockets[0].regs[W6300_Sn_MR] = W6300_MR_MACRAW;
+    dev.sockets[0].regs[W6300_Sn_SR] = W6300_SOCK_MACRAW;
+    extern void w6300_macraw_vnet_rx_test(w6300_t *dev, int sock,
+                                          const uint8_t *frame, int len);
+    uint8_t v6[60], v4[60];
+    memset(v6, 0, sizeof(v6)); memset(v4, 0, sizeof(v4));
+    memcpy(v6, dev.common + W6300_SHAR0, 6);
+    memcpy(v4, dev.common + W6300_SHAR0, 6);
+    v6[12] = 0x86; v6[13] = 0xDD;
+    v4[12] = 0x08; v4[13] = 0x00;
+    dev.common[W6300_NETMR] = W6300_NETMR_IP6B;
+    w6300_macraw_vnet_rx_test(&dev, 0, v6, sizeof(v6));
+    w6300_macraw_vnet_rx_test(&dev, 0, v4, sizeof(v4));
+    uint16_t rsr = ((uint16_t)test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0) << 8) |
+                   test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0 + 1);
+    ASSERT_EQ(62, (int)rsr, "only the IPv4 frame should land with IP6B set");
+    /* Drain via the ioLibrary rhythm: advance RX_RD past the frame,
+     * then RECV (bare RECV with RX_RD==base is a no-op by design). */
+    test_w6300_reg_write(&dev, 1, W6300_Sn_RX_RD0, 0x00);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_RX_RD0 + 1, 62);
+    test_w6300_reg_write(&dev, 1, W6300_Sn_CR, W6300_CMD_RECV);
+    dev.common[W6300_NETMR] = W6300_NETMR_IP4B;
+    w6300_macraw_vnet_rx_test(&dev, 0, v6, sizeof(v6));
+    w6300_macraw_vnet_rx_test(&dev, 0, v4, sizeof(v4));
+    rsr = ((uint16_t)test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0) << 8) |
+          test_w6300_reg_read(&dev, 1, W6300_Sn_RX_RSR0 + 1);
+    ASSERT_EQ(62, (int)rsr, "only the IPv6 frame should land with IP4B set");
     vnet_cleanup();
     PASS();
 }
@@ -9558,6 +9743,7 @@ int main(void) {
     RUN_TEST(test_w6300_live_close_cleans_host_socket);
     RUN_TEST(test_w6300_discon);
     RUN_TEST(test_w6300_ipraw_open_status);
+    RUN_TEST(test_w6300_ipraw_send_needs_privilege);
     RUN_TEST(test_w6300_open_seeds_retry_and_clears_esr);
     RUN_TEST(test_w6300_connect6_esr);
     RUN_TEST(test_w6300_dual_connect_selects_family);
@@ -9575,10 +9761,13 @@ int main(void) {
     RUN_TEST(test_w6300_send_mac_sendok);
     RUN_TEST(test_w6300_ipv6_net_regs_lock);
     RUN_TEST(test_w6300_slcr_full_bits);
+    RUN_TEST(test_w6300_rs_ra_capture);
+    RUN_TEST(test_w6300_slcr_busy_and_rs_tout);
     RUN_TEST(test_w6300_sir_masked);
     RUN_TEST(test_w6300_sn_esr_readonly);
     RUN_TEST(test_w6300_sn_ir_w1c_via_irclr);
     RUN_TEST(test_w6300_macraw_gateway_path);
+    RUN_TEST(test_w6300_netmr_block_bits);
     RUN_TEST(test_board_w6300_off_by_default);
     RUN_TEST(test_board_w6300_attach_spi0_cs16);
     RUN_TEST(test_board_w6300_int_assert_clear);

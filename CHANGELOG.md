@@ -1,6 +1,33 @@
 # Pico-emu RP2040/RP2350 Emulator - Changelog
 
-## [Unreleased] - 2026-09-29
+## [1.0.1] - 2026-09-30
+
+### Added - W6300 socket-less + PACKET INFO completion (RA capture, SLRCR TOUT, RX headers)
+
+RX layout is now silicon PACKET INFO (W6300 DS Fig.19/22/23, confirmed
+against the downloaded datasheet + io6Library recvfrom — the old 22B
+UDP6 header was our extension and is gone): UDP4 8B (flags/len + DST
+IPv4 + DST port), UDP6 20B (flags/len + DST IPv6 + DST port), IPRAW4 6B
+(len + DST IPv4), IPRAW6 18B (flags/len + DST IPv6); live loopback tests
+assert the exact flag/len/address bytes. Gateway side: the Go gateway
+already speaks full IPv6 (RA/NA/echo + NAT64/DNS64 over the same
+room/vnet the W6300 MACRAW socket joins — verified in main.go/
+handleICMPv6.go/nat64.go), and MACRAW now enforces NETMR_IP4B/IP6B at
+ingress so the chip's protocol-block bits actually gate v6/v4 frames;
+IPRAW privilege handling is documented at OPEN (EPERM/EACCES → valid
+status, per-datagram TIMEOUT like unanswered ARP). Socket-less: SLCR_RS
+arms an RA capture that latches a live gateway RA into PLR/PFR/VLTR/
+PLTR/PAR + SLIR_RS (DS 7.6.6/Fig.28; unsolicited RAs don't fake it),
+and SLRCR==0 raises SLIR_TOUT per the DS 7.7.1 single-shot budget
+(comment corrected: zero means one shot, not "no retries" vs sockets).
+4 new unit tests (netmr_block_bits, rs_ra_capture, slcr_busy_and_rs_tout,
+ipraw_send_needs_privilege; slcr + ipraw tests extended); 474/474 tests;
+sweep 70/70; WASM + threads rebuilt, test-wasm PASS. RV32 stays
+sweep-locked via in-tree IPv4 guests (untouched). Socket-less RS is now a
+true wire-gated transaction: SLCR_RS arms (never completes from the write),
+the live gateway RA completes it (PLR/PFR/VLTR/PLTR/PAR + SLIR_RS), the
+SLRTR x (SLRCR+1) tick budget raises SLIR_TOUT with no RA, and a second
+SLCR while armed is ignored (DS 7.6 one-at-a-time).
 
 ### Added - W6300 offload RX path (RECV commit, live RSR, common OOB)
 
@@ -51,7 +78,7 @@ sockets receive in poll(); Sn_TTLR/Sn_TOSR apply at dial time
 (IP_TTL/IP_TOS, IPV6_UNICAST_HOPS/IPV6_TCLASS); WASM LISTEN6 framing
 ([0x4C,sock,lo,hi,'6']) + net_proxy.py AF_INET6 listen; 5 new unit
 tests incl. live ::1 TCPD-CONNECT (fd family + ESTABLISHED + ESR TCPM)
-and live UDP6 loopback echo (22B header + DIP6R mirror); 466/466 tests;
+and live UDP6 loopback echo (20B PACKET INFO + DIP6R mirror); 466/466 tests;
 sweep 70/70; WASM + threads rebuilt, test-wasm/ble/gateway PASS.
 RV32 stays sweep-locked via in-tree guests (IPv4 DORA/HTTP paths
 untouched); no guest in tree exercises v6 live paths (Arduino
@@ -80,7 +107,7 @@ Sn_RTR/Sn_RCR from RTR/RCR and clears ESR; ESR mirrors TCPM/TCPOP/IP6T
 (+common IR&IMR, SLIR&SLIMR, IEN gate; Sn_IMR=0xFF/SIMR=0xFF reset
 defaults); full SLCR/SLIR bit set (ARP4/PING4/ARP6/PING6/NS/RS/UNA→NS)
 + TCNTR/TCNTRCLR; live AF_INET6 host sockets (TCP/UDP OPEN/LISTEN/
-CONNECT/SEND/poll-RX with 22B v6 UDP header + DIP6R mirror) and WASM
+CONNECT/SEND/poll-RX with silicon PACKET INFO headers + DIPxR mirror) and WASM
 pump CONNECT6/SEND6 framing + net_proxy.py v6 parse/dial/sendto;
 10 new unit tests; 460/460 tests; sweep 70/70; M0+/M33 Arduino DORA
 still green; RV32 in-tree guests untouched, sweep-locked.

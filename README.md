@@ -1,6 +1,6 @@
 # picoemu – RP2040/RP2350 Emulator (WebAssembly)
 
-> **Credit:** This is a WebAssembly port of [Night-Traders-Dev/Bramble](https://github.com/Night-Traders-Dev/Bramble) (MIT). All emulation core, peripherals and tests are from the original project (extended here to 426: VFP/DCP/RRX/STMIA/USAT/SMM/RV-bypass + W5500 MACRAW/pico-eth + B-package ADC/PWM/DMA + HSTX/TRNG/SHA-256 + SAU/MPU + DSP/MVE + Zfinx coverage). WASM build and browser UI by [danish9661/picoemu](https://github.com/danish9661/picoemu).
+> **Credit:** This is a WebAssembly port of [Night-Traders-Dev/Bramble](https://github.com/Night-Traders-Dev/Bramble) (MIT). All emulation core, peripherals and tests are from the original project (extended here to 474: VFP/DCP/RRX/STMIA/USAT/SMM/RV-bypass + W5500/W6300 MACRAW/pico-eth/pico-w6300 + B-package ADC/PWM/DMA + HSTX/TRNG/SHA-256 + SAU/MPU + DSP/MVE + Zfinx coverage). WASM build and browser UI by [danish9661/picoemu](https://github.com/danish9661/picoemu).
 
 A from-scratch emulator for Raspberry Pi RP2040 and RP2350 microcontrollers, supporting both ARM Cortex-M0+ (Thumb) and RISC-V Hazard3 (RV32IMAC) cores. Loads and executes UF2 and ELF firmware with accurate memory mapping and peripheral emulation. Compiles to WebAssembly via Emscripten for browser execution at ~8-10× speed over pure-JS emulators.
 
@@ -15,9 +15,9 @@ npx picoemu hello_world.uf2          # CLI: arch auto-detected from UF2
 Browser UI (`web/index.html`) has RP2040 / M33 / RV32 demo dropdowns, serial
 monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs/PICOEMU.md).
 
-## Current Status: v0.50.0
+## Current Status: v1.0.1
 
-  426/426 tests passing (zero warnings). **RP2040**: Boots littleOS shell (UART), TinyUSB CDC `hello_usb`, MicroPython REPL (USB CDC), all peripheral self-tests, `hello_world`/`gpio`/`timer`/`interrupt`/`name_prompt`. **RP2350 RISC-V**: Complete Hazard3 emulation with Zba, Zbb, Zbs, Zcb, Zcmp, and Zbkb extensions; boots littleOS to interactive shell (`health` OK). **RP2350 ARM**: Cortex-M33 mode (`-arch m33`) boots littleOS to shell with SageLang eval (`print(6*7)` = `42`, floats, VFP+DCP), supervisor health nominal. **Tri-architecture**: `-arch m0+` / `-arch m33` / `-arch rv32` with automatic firmware detection via UF2 family ID and picobin IMAGE_DEF blocks. **Networking**: Virtual network bus with TAP bridge, multi-instance Ethernet mesh, W5500/W6300 live sockets (via `web/net_proxy.py`), W5500/W6300 MACRAW socket-0 gateway path (one shared vnet bus for WiFi + Ethernet), and software-defined devices. **Wired Ethernet**: `pico-eth`/`pico-eth2` board (WIZnet W5500-EVB-Pico/Pico2 on SPI0, CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` board (WIZnet W6300-EVB-Pico/Pico2 on SPI0 QSPI-single, CS16/RST22/INT15) + in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` bare-metal guests (full DORA + ARP→SYN→GET→200→FIN on all three cores, `dhcp_peer_test.py`/`http_peer_test.py`) + Arduino-CLI `Wiznet5500lwIP` DHCP prove-out (M0+/M33 in-tree DORA green via live peer; Arduino E2E post-OFFER stall is guest-side RX pump, under test — see CHANGELOG). **Bluetooth**: internal HCI responder + loopback GATT (`wifi_ble_adv_rv32`/`wifi_ble_gatt_rv32` → `GATT-DONE`, sweep-locked) plus HCI-forward to Bumble/RootCanal/physical via `web/hci_bridge.py`; in-tree ARM `ble_adv` guests (M0+/M33) reach `ARM BLE LISTEN` (sweep-locked, like RV32).
+  474/474 tests passing (zero warnings), sweep 70/70. **RP2040**: Boots littleOS shell (UART), TinyUSB CDC `hello_usb`, MicroPython REPL (USB CDC), all peripheral self-tests, `hello_world`/`gpio`/`timer`/`interrupt`/`name_prompt`. **RP2350 RISC-V**: Complete Hazard3 emulation with Zba, Zbb, Zbs, Zcb, Zcmp, and Zbkb extensions; boots littleOS to interactive shell (`health` OK). **RP2350 ARM**: Cortex-M33 mode (`-arch m33`) boots littleOS to shell with SageLang eval (`print(6*7)` = `42`, floats, VFP+DCP), supervisor health nominal. **Tri-architecture**: `-arch m0+` / `-arch m33` / `-arch rv32` with automatic firmware detection via UF2 family ID and picobin IMAGE_DEF blocks. **Networking**: Virtual network bus with TAP bridge, multi-instance Ethernet mesh, W5500/W6300 live sockets (via `web/net_proxy.py`), W5500/W6300 MACRAW socket-0 gateway path (one shared vnet bus for WiFi + Ethernet), and software-defined devices. **Wired Ethernet**: `pico-eth`/`pico-eth2` board (WIZnet W5500-EVB-Pico/Pico2 on SPI0, CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` board (WIZnet W6300-EVB-Pico/Pico2 on SPI0 QSPI-single, CS16/RST22/INT15) + in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` bare-metal guests (full DORA + ARP→SYN→GET→200→FIN on all three cores, `dhcp_peer_test.py`/`http_peer_test.py`) + Arduino-CLI `Wiznet5500lwIP` DHCP prove-out (M0+/M33 in-tree DORA green via live peer; Arduino E2E post-OFFER stall is guest-side RX pump, under test — see CHANGELOG). **Bluetooth**: internal HCI responder + loopback GATT (`wifi_ble_adv_rv32`/`wifi_ble_gatt_rv32` → `GATT-DONE`, sweep-locked) plus HCI-forward to Bumble/RootCanal/physical via `web/hci_bridge.py`; in-tree ARM `ble_adv` guests (M0+/M33) reach `ARM BLE LISTEN` (sweep-locked, like RV32).
 
 ### Coverage
 
@@ -44,7 +44,7 @@ monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs
 | Firmware Auto-Detect | UF2 + ELF | Auto-detects RP2040/RP2350-ARM/RP2350-RV from UF2 family ID or ELF machine type |
 | RV Performance | ICache | 64K-entry decoded instruction cache for flash/ROM fetches |
 | RV Semihosting | EBREAK | Full ARM semihosting protocol: SYS_WRITE0, SYS_WRITEC, SYS_WRITE, SYS_READC, SYS_EXIT, etc. via EBREAK |
- | Tests | 426 | CTest integrated, 60+ categories (23 RV incl. Zfinx + 8 M33 incl. SAU/MPU/DSP/MVE + 19 networking + 5 EEPROM + RP2350 HSTX/TRNG/SHA-256 + B-package ADC/PWM/DMA + USB multi-packet + NVIC user-IRQ + UART IRQ + CLINT subword tests) |
+ | Tests | 474 | CTest integrated, 60+ categories (23 RV incl. Zfinx + 8 M33 incl. SAU/MPU/DSP/MVE + 19 networking + 5 EEPROM + RP2350 HSTX/TRNG/SHA-256 + B-package ADC/PWM/DMA + USB multi-packet + NVIC user-IRQ + UART IRQ + CLINT subword tests + W6300 dual-stack/PACKET-INFO/RA-capture) |
 
 ### Peripherals
 
@@ -526,7 +526,7 @@ Pico-emu/
 │   └── rp2350_arm/
 │       └── m33_cpu.h       # Cortex-M33 placeholder
 ├── tests/
- │   └── test_suite.c    # Unit test suite (426 tests, verbose, CTest integrated)
+ │   └── test_suite.c    # Unit test suite (474 tests, verbose, CTest integrated)
 ├── test-firmware/
 │   ├── hello_world.S   # Assembly UART test
 │   ├── gpio_test.S     # Assembly GPIO test

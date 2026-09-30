@@ -170,7 +170,7 @@ Devtools panel drives them.
 ## 6. Building from source
 
 Native: `cmake -S . -B build && cmake --build build -j && ctest
---test-dir build` (426 tests). WASM: `./build_wasm.sh` (needs emsdk;
+--test-dir build` (474 tests). WASM: `./build_wasm.sh` (needs emsdk;
 output to `web/picoemu.wasm.*`). Publish flow: manual
 `.github/workflows/publish.yml` (branch + version + description →
 npmjs `picoemu` + GPR `@danish9661/picoemu`).
@@ -202,7 +202,15 @@ in the browser bench, `--board pico-eth|pico-w6300` in `web/cli.js`):
 W5500 on SPI0 with CSn=GPIO17, RSTn=GPIO20, INTn=GPIO21, VERSIONR `0x04`,
 W1C socket IR, computed SIR; W6300 on SPI0 QSPI-single with CSn=GPIO16,
 RSTn=GPIO22, INTn=GPIO15, CIDR `0x61/0x00/0x11`, CHIP/NET/PHY lock groups,
-PHYSR opposite-polarity link bits, `Sn_IRCLR` W1C;
+PHYSR opposite-polarity link bits, `Sn_IRCLR` W1C; the W6300 model covers
+the full dual IPv4/IPv6 offload surface — socket modes TCP4/UDP4/IPRAW4/
+MACRAW + TCP6/UDP6/IPRAW6 + dual-stack TCPD/UDPD, commands OPEN/LISTEN/
+CONNECT/CONNECT6/DISCON/CLOSE/SEND/SEND_MAC/SEND_KEEP/RECV/SEND6, IPv6 net
+registers (LLAR/GUAR/SUB6R/GA6R, SLDIP6R, UIP6R/UPORT6R), masked interrupt
+chain (Sn_IMR/SIMR/SLIMR/IMR + IEN gate), RTR/RCR retry engine with
+TIMEOUT, Sn_KPALVTR auto-keepalive, NETMR Wake-on-LAN magic-packet detect,
+Sn_TTLR/Sn_TOSR/Sn_MSSR socket options, offload RECV commit with live
+RX_RSR; live host sockets for IPv4 + IPv6 (loopback-verified);
 and the **MACRAW gateway path** (socket 0 in `MR_MACRAW` joins the shared
 vnet bus — same room/DHCP/NAT as CYW43 WiFi, see `docs/NETWORKING.md`).
 `-board-live` dials real host sockets; the browser proxy path is shared
@@ -220,9 +228,14 @@ SYN → `GET /` → `200 hello-eth` → FIN → `ETH HTTP-DONE`), verified via
 MAC/XID/sport, server SSEQ `0x00100000`). Sweep asserts the pre-DORA
 markers (`ETH MACRAW-OK`) offline; W6300 in-tree guests
 `web/eth_dhcp6300{,_pico2,_rv32}.uf2` (same DORA, QSPI-single + CIDR2 +
-unlock + `Sn_MR=0x07`) sweep-locked the same way; Arduino-CLI `Wiznet5500lwIP` DHCP
+unlock + `Sn_MR=0x07`) and `web/eth_http6300{,_pico2,_rv32}.uf2`
+sweep-locked the same way; Arduino-CLI `Wiznet5500lwIP` DHCP
 (`test-firmware/arduino/ethdhcp/`) is the real-driver prove-out
 (M0+/M33 in-tree DORA green via live peer; Arduino E2E post-OFFER stall is
-guest-side RX pump, under test — see CHANGELOG). In-tree ARM `ble_adv{,_pico2}.uf2`
+guest-side RX pump, under test — see CHANGELOG); Arduino-CLI `W6300lwIP` DHCP
+(`test-firmware/arduino/ethdhcp6300/`, vendored `ethdhcp6300_arduino{,_pico2}.uf2`)
+is the W6300 real-driver prove-out — full DORA green on M0+ and M33 via the
+PIO-QSPI bridge (driver DMA/PIO traffic snooped at the register layer, zero
+cost when off). In-tree ARM `ble_adv{,_pico2}.uf2`
 (RV32 `wifi_ble_adv_rv32.uf2` is the reference) reach `ARM BLE LISTEN`
 (sweep-locked, like RV32).

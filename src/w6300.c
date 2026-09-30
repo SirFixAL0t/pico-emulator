@@ -214,13 +214,40 @@ static void w6300_close_host_sock(w6300_socket_t *s) {
  * MACRAW gateway path (single-gateway Ethernet, shared vnet bus)
  * ======================================================================== */
 
+/* Test hook: exercise the MACRAW ingress path (NETMR block bits, WOL)
+ * without consuming one of the 2 vnet attach slots. */
+void w6300_macraw_vnet_rx_test(w6300_t *dev, int sock,
+                               const uint8_t *frame, int len);
+
+static void w6300_macraw_vnet_rx_core(w6300_t *dev, int sock,
+                                      const uint8_t *frame, int len);
+
+void w6300_macraw_vnet_rx_test(w6300_t *dev, int sock,
+                               const uint8_t *frame, int len) {
+    w6300_macraw_vnet_rx_core(dev, sock, frame, len);
+}
+
 static void w6300_macraw_vnet_rx(void *ctx, const uint8_t *frame, int len) {
     w6300_t *dev = NULL;
     int sock = -1;
     extern void w6300_macraw_dispatch(void *ctx, w6300_t **dev_out, int *sock_out);
     w6300_macraw_dispatch(ctx, &dev, &sock);
+    w6300_macraw_vnet_rx_core(dev, sock, frame, len);
+}
+
+static void w6300_macraw_vnet_rx_core(w6300_t *dev, int sock,
+                                      const uint8_t *frame, int len) {
     if (!dev || sock < 0 || sock >= W6300_NUM_SOCKETS) return;
     if (!frame || len < 14 || len > 1514) return;
+    /* NETMR protocol-block bits (ioLibrary NETMR_IP4B/IP6B): silicon
+     * drops the family at the wire. Enforced here so a guest that sets
+     * IP6B (or IP4B) actually stops seeing that family on MACRAW. */
+    {
+        uint16_t et = ((uint16_t)frame[12] << 8) | frame[13];
+        uint8_t nmr = dev->common[W6300_NETMR];
+        if (et == 0x0800 && (nmr & W6300_NETMR_IP4B)) return;
+        if (et == 0x86DD && (nmr & W6300_NETMR_IP6B)) return;
+    }
     w6300_socket_t *s = &dev->sockets[sock];
     if (s->regs[W6300_Sn_MR] != W6300_MR_MACRAW ||
         s->regs[W6300_Sn_SR] != W6300_SOCK_MACRAW)
@@ -244,6 +271,50 @@ static void w6300_macraw_vnet_rx(void *ctx, const uint8_t *frame, int len) {
     s->regs[W6300_Sn_RX_RSR0]     = (rx_rsr >> 8) & 0xFF;
     s->regs[W6300_Sn_RX_RSR0 + 1] = rx_rsr & 0xFF;
     s->regs[W6300_Sn_IR] |= W6300_IR_RECV;
+    /* Router Advertisement capture (DS 7.6.6/Fig.28): when an RA lands
+     * on MACRAW after the guest issued SLCR_RS, silicon latches the
+     * prefix block (PLR/PFR/VLTR/PLTR/PAR) and raises SLIR_RS. The
+     * model parses the live RA off the wire: ETH(14) + IPv6(40, next
+     * 58) + ICMPv6 RA(4: type 134) + options; prefix-info option
+     * (type 3, len 4 = 32B) yields length/flags/valid/preferred/prefix.
+     * Only the first prefix option is latched (silicon holds one PAR).
+     * Requires a pending RS: SLCR_RS must have been issued since the
+     * last SLIRCLR (tracked via sl_rs_pending); unsolicited RAs (the
+     * gateway's 7s ticker) still reach the guest RX buffer but do not
+     * touch the RA registers or SLIR. */
+    if (dev->sl_rs_pending && len >= (14 + 40 + 4 + 8) &&
+        frame[12] == 0x86 && frame[13] == 0xDD &&
+        frame[14 + 6] == 58 && frame[14 + 40] == 134) {
+        const uint8_t *icmp = frame + 14 + 40;
+        int icmp_len = len - 14 - 40;
+        int opt = 16; /* skip type/code/cksum/curhop/flags/lifetime/reach/retrans */
+        while (opt + 2 <= icmp_len) {
+            uint8_t otype = icmp[opt], olen = icmp[opt + 1];
+            if (olen == 0) break;
+            int obytes = (int)olen * 8;
+            if (opt + obytes > icmp_len) break;
+            if (otype == 3 && olen == 4 && opt + 32 <= icmp_len) {
+                dev->common[W6300_PLR] = icmp[opt + 2];
+                dev->common[W6300_PFR] = icmp[opt + 3];
+                dev->common[W6300_VLTR0]     = icmp[opt + 4];
+                dev->common[W6300_VLTR0 + 1] = icmp[opt + 5];
+                dev->common[W6300_VLTR0 + 2] = icmp[opt + 6];
+                dev->common[W6300_VLTR0 + 3] = icmp[opt + 7];
+                dev->common[W6300_PLTR0]     = icmp[opt + 8];
+                dev->common[W6300_PLTR0 + 1] = icmp[opt + 9];
+                dev->common[W6300_PLTR0 + 2] = icmp[opt + 10];
+                dev->common[W6300_PLTR0 + 3] = icmp[opt + 11];
+                for (int i = 0; i < 16; i++)
+                    dev->common[W6300_PAR0 + i] = icmp[opt + 16 + i];
+                dev->common[W6300_SLIR] |= W6300_SLIR_RS;
+                dev->sl_rs_pending = 0;
+                dev->sl_pending = 0;
+                dev->sl_ticks = 0;
+                break;
+            }
+            opt += obytes;
+        }
+    }
     /* Wake-on-LAN (NETMR_WOL): UDP magic packet (6x 0xFF + 16x SHAR)
      * raises common IR_WOL. Checked on every MACRAW ingress at the UDP
      * payload offset (14 ETH + 20 IP + 8 UDP = 42B). The IP total-length
@@ -506,7 +577,12 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
         } else if (w6300_mode_is_ipraw(mode)) {
             /* IPRAW4/6: raw IP socket. Status mirrors the family so
              * guests can tell them apart (ioLibrary SOCK_IPRAW4=0x32,
-             * SOCK_IPRAW6=0x33). Live host path dials in SEND paths. */
+             * SOCK_IPRAW6=0x33). Live host path dials in SEND paths.
+             * Raw sockets need privilege (root or CAP_NET_RAW); when
+             * socket() fails with EPERM/EACCES the guest still sees a
+             * valid IPRAW status (silicon has no privilege concept) and
+             * SEND surfaces TIMEOUT per datagram, exactly like an
+             * unanswered ARP on silicon. */
             s->regs[W6300_Sn_SR] = (mode == W6300_MR_IPRAW6) ?
                 W6300_SOCK_IPRAW6 : W6300_SOCK_IPRAW4;
             if (dev->live) {
@@ -518,6 +594,9 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
                     s->host_fd = socket(AF_INET, SOCK_RAW,
                         s->regs[W6300_Sn_PNR] ? s->regs[W6300_Sn_PNR] : IPPROTO_RAW);
                 if (s->host_fd >= 0) set_sock_nonblock(s->host_fd);
+                else if (errno == EPERM || errno == EACCES)
+                    fprintf(stderr, "[W6300] IPRAW socket needs privilege "
+                            "(root/CAP_NET_RAW); SEND will raise TIMEOUT\n");
             }
         } else if (mode == W6300_MR_CLOSE) {
             s->regs[W6300_Sn_SR] = W6300_SOCK_CLOSED;
@@ -833,8 +912,13 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
                        (struct sockaddr *)&dest, sizeof(dest));
             } else if (w6300_mode_is_ipraw(mode)) {
                 /* IPRAW: raw IP datagram, protocol from Sn_PNR. Host
-                 * raw sockets need privilege; attempt and surface
-                 * TIMEOUT on failure like silicon would. */
+                 * raw sockets need privilege (root/CAP_NET_RAW); without
+                 * a host fd there is no kernel to hand the datagram to,
+                 * so surface TIMEOUT like silicon's unanswered-ARP path
+                 * instead of silently claiming SENDOK. This branch is
+                 * only reachable live with a host fd; the offline
+                 * no-fd case is handled below by the shared IPRAW
+                 * fallback (it must not fall through to SENDOK). */
                 if (is_v6) {
                     struct sockaddr_in6 dest6;
                     w6300_build_addr6(s, &dest6);
@@ -894,6 +978,15 @@ static void w6300_process_socket_cmd(w6300_t *dev, int sock) {
             }
         }
 #endif
+        /* Offline/unprivileged IPRAW (no host fd to hand the datagram to)
+         * must not claim SENDOK: silicon raises TIMEOUT on the failed
+         * ARP/ND, so do the same. TCP/UDP offline keep the historic
+         * instant-SENDOK stub (no silicon ARP failure to model). */
+        if (w6300_mode_is_ipraw(mode) &&
+            !(dev->live && s->host_fd >= 0)) {
+            s->regs[W6300_Sn_IR] |= W6300_IR_TIMEOUT;
+            break;
+        }
         s->regs[W6300_Sn_TX_RD0] = s->regs[W6300_Sn_TX_WR0];
         s->regs[W6300_Sn_TX_RD0 + 1] = s->regs[W6300_Sn_TX_WR0 + 1];
         s->regs[W6300_Sn_TX_FSR0] = (W6300_TX_BUF_SIZE >> 8) & 0xFF;
@@ -1138,21 +1231,70 @@ static void w6300_write_common(w6300_t *dev, uint16_t addr, uint8_t val) {
         return;
     case W6300_SLIRCLR:
         dev->common[W6300_SLIR] &= (uint8_t)~val;
+        if (val & W6300_SLIR_RS) dev->sl_rs_pending = 0;
+        /* Clearing every solicited bit releases the in-flight command
+         * (DS 7.6: next command only after a SLIR bit was set). */
+        if ((dev->common[W6300_SLIR] &
+             (W6300_SLIR_RA | W6300_SLIR_RS | W6300_SLIR_NS |
+              W6300_SLIR_PING6 | W6300_SLIR_ARP6 | W6300_SLIR_PING4 |
+              W6300_SLIR_ARP4 | W6300_SLIR_TOUT)) == 0) {
+            dev->sl_pending = 0;
+            dev->sl_ticks = 0;
+        }
         w6300_board_refresh_int();
         return;
     case W6300_SLCR:
-        /* Socket-less commands complete instantly in the model. */
+        /* Socket-less commands (DS 7.6/Fig.26, 7.7.1): silicon transmits
+         * the request on the wire and raises the matching SLIR bit on
+         * reply, or SLIR_TOUT when the retransmission budget
+         * (SLRTR x (SLRCR+1) per DS 7.7.1) expires with no response.
+         * RTR/RCR register sections confirm the shared formula for
+         * socket and socket-less paths (Sn_RTR/RTR seed, SLRTR/SLRCR
+         * direct). DS 7.6: only one socket-less command runs at a time
+         * (next command after a SLIR bit is set); a write while
+         * sl_pending is armed is ignored. The model has no wire for
+         * ARP/PING/NS here (MACRAW guests speak directly; offload
+         * sockets use host fds), so solicited commands complete
+         * instantly — EXCEPT the timeout path, which is real:
+         * SLRCR==0 leaves a single-shot budget per the DS formula, so
+         * with SLRCR==0 the command raises SLIR_TOUT immediately
+         * instead of success. SLRTR==0 falls back to the 200ms
+         * datasheet default and does not affect the instant-success
+         * path. RS never completes from the write itself: it arms the
+         * MACRAW RA capture (sl_rs_pending) and finishes on the wire
+         * RA or on the SLRTR x (SLRCR+1) tick budget in w6300_poll. */
         dev->common[W6300_SLCR] = 0x00;
-        if (val & W6300_SLCR_ARP4)  dev->common[W6300_SLIR] |= W6300_SLIR_ARP4;
-        if (val & W6300_SLCR_PING4) dev->common[W6300_SLIR] |= W6300_SLIR_PING4;
-        if (val & W6300_SLCR_ARP6)  dev->common[W6300_SLIR] |= W6300_SLIR_ARP6;
-        if (val & W6300_SLCR_PING6) dev->common[W6300_SLIR] |= W6300_SLIR_PING6;
-        if (val & W6300_SLCR_NS)    dev->common[W6300_SLIR] |= W6300_SLIR_NS;
-        if (val & W6300_SLCR_RS)    dev->common[W6300_SLIR] |= W6300_SLIR_RS;
-        if (val & W6300_SLCR_UNA) {
-            /* UNA (neighbor Unreachability detection): silicon sends NS
-             * and reports via NS; model completes instantly the same. */
-            dev->common[W6300_SLIR] |= W6300_SLIR_NS;
+        if (dev->sl_pending) break;  /* one socket-less command at a time */
+        if (dev->common[W6300_SLRCR] == 0x00) {
+            if (val & (W6300_SLCR_ARP4 | W6300_SLCR_PING4 |
+                       W6300_SLCR_ARP6 | W6300_SLCR_PING6 |
+                       W6300_SLCR_NS | W6300_SLCR_RS | W6300_SLCR_UNA))
+                dev->common[W6300_SLIR] |= W6300_SLIR_TOUT;
+        } else if (val & W6300_SLCR_RS) {
+            /* RS: silicon transmits the solicitation; the RA reply is
+             * captured off MACRAW by w6300_macraw_vnet_rx_core (DS
+             * 7.6.6/Fig.28 -> PLR/PFR/VLTR/PLTR/PAR + SLIR_RS). Arm
+             * both the capture and the tick budget; SLIR_RS itself
+             * comes from the wire (or TOUT from the budget). */
+            dev->sl_rs_pending = 1;
+            dev->sl_pending = W6300_SLCR_RS;
+            dev->sl_ticks = 0;
+        } else {
+            if (val & W6300_SLCR_ARP4)  dev->common[W6300_SLIR] |= W6300_SLIR_ARP4;
+            if (val & W6300_SLCR_PING4) dev->common[W6300_SLIR] |= W6300_SLIR_PING4;
+            if (val & W6300_SLCR_ARP6)  dev->common[W6300_SLIR] |= W6300_SLIR_ARP6;
+            if (val & W6300_SLCR_PING6) dev->common[W6300_SLIR] |= W6300_SLIR_PING6;
+            if (val & W6300_SLCR_NS)    dev->common[W6300_SLIR] |= W6300_SLIR_NS;
+            if (val & W6300_SLCR_UNA) {
+                /* UNA (neighbor Unreachability detection): silicon sends NS
+                 * and reports via NS; model completes instantly the same. */
+                dev->common[W6300_SLIR] |= W6300_SLIR_NS;
+            }
+            /* Solicited non-RS commands finish from the write itself, so a
+             * second SLCR is legal immediately (only RS holds sl_pending
+             * across the RA wait). */
+            dev->sl_pending = 0;
+            dev->sl_ticks = 0;
         }
         w6300_board_refresh_int();
         return;
@@ -1608,6 +1750,27 @@ void w6300_poll(w6300_t *dev) {
         dev->common[W6300_TCNTR0 + 1] = t & 0xFF;
     }
 
+    /* Socket-less RS budget (DS 7.6.6/7.7.1): an armed SLCR_RS with no
+     * wire RA raises SLIR_TOUT after SLRTR x (SLRCR+1) ticks, like the
+     * socket SYNSENT engine. With the live gateway's 7s unsolicited RA
+     * ticker the RA normally arrives first and the capture path clears
+     * sl_pending; this budget covers dead-router rooms. */
+    if (dev->sl_pending == W6300_SLCR_RS) {
+        uint16_t slrtr = ((uint16_t)dev->common[W6300_SLRTR0] << 8) |
+                         dev->common[W6300_SLRTR0 + 1];
+        if (slrtr == 0) slrtr = 2000;  /* datasheet default 200ms */
+        uint8_t slrcr = dev->common[W6300_SLRCR];
+        uint32_t per_attempt = (uint32_t)((slrtr + 9) / 10);
+        if (per_attempt == 0) per_attempt = 1;
+        if (++dev->sl_ticks >= per_attempt * ((uint32_t)slrcr + 1u)) {
+            dev->common[W6300_SLIR] |= W6300_SLIR_TOUT;
+            dev->sl_pending = 0;
+            dev->sl_ticks = 0;
+            dev->sl_rs_pending = 0;
+            w6300_board_refresh_int();
+        }
+    }
+
     for (int i = 0; i < W6300_NUM_SOCKETS; i++) {
         w6300_socket_t *s = &dev->sockets[i];
 
@@ -1708,30 +1871,30 @@ void w6300_poll(w6300_t *dev) {
             }
         }
 
-        /* IPRAW sockets also receive (raw datagrams have no header
-         * framing in the model: payload lands as-is; ioLibrary parity
-         * would need IP-header parsing, which no in-tree guest uses). */
+        /* RX layout is silicon PACKET INFO (W6300 DS Fig.19/22/23 +
+         * io6Library recvfrom): every UDP/IPRAW datagram lands as
+         * [PACKET INFO][payload]. UDP4: 8B = flags/len(2B: 5 flag
+         * bits + 11-bit DATA length) + DST IPv4(4B) + DST port(2B).
+         * UDP6: 20B = flags/len(2B) + DST IPv6(16B) + DST port(2B).
+         * IPRAW4: 6B = DATA length(2B, plain BE) + DST IPv4(4B).
+         * IPRAW6: 18B = flags/len(2B) + DST IPv6(16B), no port.
+         * UDP flag bits (byte0, Table 4): bit7 IPv6, bit6 BRD/ALL,
+         * bit5 MUL, bit4 LLA(v6: 1=LLA,0=GUA); low 11 bits of the 2B
+         * word are the UDP DATA length. The guest parses with the
+         * datasheet pseudo-code (PACKET INFO read, then DATA read);
+         * DIPxR/DPORTR mirror the peer so a SEND/SEND6 reply routes
+         * back (ioLibrary sendto overwrites them anyway). */
         if (s->host_fd >= 0 &&
             (s->regs[W6300_Sn_SR] == W6300_SOCK_ESTABLISHED ||
-             s->regs[W6300_Sn_SR] == W6300_SOCK_UDP ||
-             s->regs[W6300_Sn_SR] == W6300_SOCK_IPRAW4 ||
-             s->regs[W6300_Sn_SR] == W6300_SOCK_IPRAW6)) {
+              s->regs[W6300_Sn_SR] == W6300_SOCK_UDP ||
+              s->regs[W6300_Sn_SR] == W6300_SOCK_IPRAW4 ||
+              s->regs[W6300_Sn_SR] == W6300_SOCK_IPRAW6)) {
 
             uint16_t rx_rsr = ((uint16_t)s->regs[W6300_Sn_RX_RSR0] << 8) |
                               s->regs[W6300_Sn_RX_RSR0 + 1];
             uint16_t free_space = W6300_RX_BUF_SIZE - rx_rsr;
             if (free_space == 0) continue;
 
-            /* IPv6 sockets speak recvfrom/recv on an AF_INET6 fd; the
-             * UDP header layout follows the W5500 convention (8B: 4B
-             * src IP + 2B src port + 2B len) extended to v6 by widening
-             * the address field: 16B src IPv6 + 2B src port + 2B zero
-             * pad + 2B len = 22B. ioLibrary parity for UDP6 would need
-             * the exact silicon layout (unverifiable: the vendored
-             * W6300lwIP driver is IPv4-only, no DIP6R/DIPR pack format
-             * exists in-tree); the 22B choice keeps the v4 prefix shape
-             * (addr, port, len in the same relative order) and is
-             * loopback-tested end-to-end (DIP6R mirror verified). */
             int sock_is_v6 = 0;
             {
                 struct sockaddr_storage ss;
@@ -1746,36 +1909,50 @@ void w6300_poll(w6300_t *dev) {
                                  s->regs[W6300_Sn_RX_WR0 + 1];
 
                 uint8_t tmp[W6300_RX_BUF_SIZE];
-                int is_udp = (s->regs[W6300_Sn_SR] == W6300_SOCK_UDP);
-                uint8_t hdr[24];
+                int sr = s->regs[W6300_Sn_SR];
+                int is_udp = (sr == W6300_SOCK_UDP);
+                int is_ipraw = (sr == W6300_SOCK_IPRAW4 ||
+                                sr == W6300_SOCK_IPRAW6);
+                uint8_t hdr[20];
                 int hl = 0;
                 ssize_t n = -1;
                 if (is_udp) {
                     if (sock_is_v6) {
-                        if (free_space > 24) {
+                        /* UDP6: 20B PACKET INFO. Flags: IPv6=1; LLA
+                         * set when the peer is fe80::/10; DATA length
+                         * = payload length (11-bit field). */
+                        if (free_space > 20) {
                             struct sockaddr_in6 src6;
                             socklen_t slen = sizeof(src6);
-                            size_t room = (size_t)free_space - 24;
+                            size_t room = (size_t)free_space - 20;
                             if (room > sizeof(tmp)) room = sizeof(tmp);
                             n = recvfrom(s->host_fd, tmp, room,
                                          0, (struct sockaddr *)&src6, &slen);
                             if (n > 0) {
-                                for (int i = 0; i < 16; i++)
-                                    hdr[i] = src6.sin6_addr.s6_addr[i];
+                                uint8_t *a6 = src6.sin6_addr.s6_addr;
+                                int is_lla = (a6[0] == 0xFE &&
+                                              (a6[1] & 0xC0) == 0x80);
                                 uint16_t sport = ntohs(src6.sin6_port);
-                                hdr[16] = (sport >> 8) & 0xFF; hdr[17] = sport & 0xFF;
-                                hdr[18] = 0; hdr[19] = 0;
-                                hdr[20] = ((uint16_t)n >> 8) & 0xFF; hdr[21] = (uint16_t)n & 0xFF;
-                                hl = 22;
+                                uint16_t dlen = (uint16_t)n & 0x07FF;
+                                hdr[0] = (uint8_t)(0x80 | (is_lla ? 0x08 : 0x00) |
+                                                   ((dlen >> 8) & 0x07));
+                                hdr[1] = (uint8_t)(dlen & 0xFF);
+                                for (int i = 0; i < 16; i++)
+                                    hdr[2 + i] = a6[i];
+                                hdr[18] = (sport >> 8) & 0xFF;
+                                hdr[19] = sport & 0xFF;
+                                hl = 20;
                                 /* Mirror the peer into DIP6R/DPORTR so a
                                  * SEND6 reply goes back where it came. */
                                 for (int i = 0; i < 16; i++)
-                                    s->regs[W6300_Sn_DIP6R0 + i] = hdr[i];
-                                s->regs[W6300_Sn_DPORTR0] = hdr[16];
-                                s->regs[W6300_Sn_DPORTR0 + 1] = hdr[17];
+                                    s->regs[W6300_Sn_DIP6R0 + i] = a6[i];
+                                s->regs[W6300_Sn_DPORTR0] = hdr[18];
+                                s->regs[W6300_Sn_DPORTR0 + 1] = hdr[19];
                             }
                         }
                     } else if (free_space > 8) {
+                        /* UDP4: 8B PACKET INFO. Flags: IPv6=0; DATA
+                         * length = payload length (11-bit field). */
                         struct sockaddr_in src;
                         socklen_t slen = sizeof(src);
                         size_t room = (size_t)free_space - 8;
@@ -1785,11 +1962,74 @@ void w6300_poll(w6300_t *dev) {
                         if (n > 0) {
                             uint32_t sip = ntohl(src.sin_addr.s_addr);
                             uint16_t sport = ntohs(src.sin_port);
-                            hdr[0] = (sip >> 24) & 0xFF; hdr[1] = (sip >> 16) & 0xFF;
-                            hdr[2] = (sip >> 8) & 0xFF;  hdr[3] = sip & 0xFF;
-                            hdr[4] = (sport >> 8) & 0xFF; hdr[5] = sport & 0xFF;
-                            hdr[6] = ((uint16_t)n >> 8) & 0xFF; hdr[7] = (uint16_t)n & 0xFF;
+                            uint16_t dlen = (uint16_t)n & 0x07FF;
+                            hdr[0] = (uint8_t)((dlen >> 8) & 0x07);
+                            hdr[1] = (uint8_t)(dlen & 0xFF);
+                            hdr[2] = (sip >> 24) & 0xFF; hdr[3] = (sip >> 16) & 0xFF;
+                            hdr[4] = (sip >> 8) & 0xFF;  hdr[5] = sip & 0xFF;
+                            hdr[6] = (sport >> 8) & 0xFF; hdr[7] = sport & 0xFF;
                             hl = 8;
+                            s->regs[W6300_Sn_DIPR0]     = hdr[2];
+                            s->regs[W6300_Sn_DIPR0 + 1] = hdr[3];
+                            s->regs[W6300_Sn_DIPR0 + 2] = hdr[4];
+                            s->regs[W6300_Sn_DIPR0 + 3] = hdr[5];
+                            s->regs[W6300_Sn_DPORTR0] = hdr[6];
+                            s->regs[W6300_Sn_DPORTR0 + 1] = hdr[7];
+                        }
+                    }
+                } else if (is_ipraw) {
+                    /* IPRAW4: 6B PACKET INFO = DATA length BE(2B) +
+                     * DST IPv4(4B) (Table 8, no flags, no port).
+                     * IPRAW6: 18B PACKET INFO = flags/len(2B, same
+                     * Table 9 bits as UDP) + DST IPv6(16B), no port.
+                     * Source: recvfrom peer (live raw fd); offline
+                     * model fds read via recv() with no source, so
+                     * the address field stays zeroed. */
+                    int v6 = (sr == W6300_SOCK_IPRAW6) || sock_is_v6;
+                    int need = v6 ? 18 : 6;
+                    if (free_space > (uint16_t)need) {
+                        size_t room = (size_t)free_space - (size_t)need;
+                        if (room > sizeof(tmp)) room = sizeof(tmp);
+                        if (v6) {
+                            struct sockaddr_in6 src6;
+                            socklen_t slen = sizeof(src6);
+                            memset(&src6, 0, sizeof(src6));
+                            n = recvfrom(s->host_fd, tmp, room, 0,
+                                         (struct sockaddr *)&src6, &slen);
+                            /* Unconnected raw v6 reads may not fill a
+                             * source (recv()-style): fall back to zero
+                             * address rather than failing the datagram. */
+                            uint8_t *a6 = src6.sin6_addr.s6_addr;
+                            if (n > 0 && slen == 0)
+                                memset(a6, 0, 16);
+                            if (n > 0) {
+                                int is_lla = (a6[0] == 0xFE &&
+                                              (a6[1] & 0xC0) == 0x80);
+                                uint16_t dlen = (uint16_t)n & 0x07FF;
+                                hdr[0] = (uint8_t)(0x80 | (is_lla ? 0x08 : 0x00) |
+                                                   ((dlen >> 8) & 0x07));
+                                hdr[1] = (uint8_t)(dlen & 0xFF);
+                                for (int i = 0; i < 16; i++)
+                                    hdr[2 + i] = a6[i];
+                                hl = 18;
+                            }
+                        } else {
+                            struct sockaddr_in src;
+                            socklen_t slen = sizeof(src);
+                            memset(&src, 0, sizeof(src));
+                            n = recvfrom(s->host_fd, tmp, room, 0,
+                                         (struct sockaddr *)&src, &slen);
+                            if (n > 0) {
+                                uint32_t sip = ntohl(src.sin_addr.s_addr);
+                                if (slen == 0) sip = 0;
+                                hdr[0] = ((uint16_t)n >> 8) & 0xFF;
+                                hdr[1] = (uint16_t)n & 0xFF;
+                                hdr[2] = (sip >> 24) & 0xFF;
+                                hdr[3] = (sip >> 16) & 0xFF;
+                                hdr[4] = (sip >> 8) & 0xFF;
+                                hdr[5] = sip & 0xFF;
+                                hl = 6;
+                            }
                         }
                     }
                 } else {

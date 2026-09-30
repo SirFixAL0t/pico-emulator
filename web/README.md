@@ -71,10 +71,24 @@ Top level: one UF2 per demo (`*_test.uf2` RP2040, `*_pico2.uf2` M33,
 Networking extras: `eth_dhcp{,_pico2,_rv32}.uf2` + `eth_http{,_pico2,_rv32}.uf2`
 (W5500 DHCP + HTTP client, pico-eth on SPI0 — pick the board in the UI,
 then bridge to the Go gateway for a real lease; offline sweep asserts
-`ETH MACRAW-OK`), `ble_adv{,_pico2}.uf2` (BLE advertise M0+/M33 over the
+`ETH MACRAW-OK`), `eth_dhcp6300{,_pico2,_rv32}.uf2` +
+`eth_http6300{,_pico2,_rv32}.uf2` (W6300 DHCP + HTTP client, pico-w6300 on
+SPI0 QSPI-single — same gateway, same markers) +
+`ethdhcp6300_arduino{,_pico2}.uf2` (real Arduino `W6300lwIP` DHCP, PIO-QSPI
+driver runs unmodified; offline sweep asserts `ETH-BEGIN-OK`),
+`ble_adv{,_pico2}.uf2` (BLE advertise M0+/M33 over the
 CYW43 BT bus — sweep-locked `ARM BLE LISTEN` with `-wifi`, no peer),
 `wifi_scan` / `wifi_ping` / `wifi_webserver` + `_pico2` / `_rv32`
 (Arduino-CLI WiFi builds).
+
+W6300 feature surface (dual IPv4/IPv6 TCP/IP offload, all modeled):
+socket modes TCP4/UDP4/IPRAW4/MACRAW + TCP6/UDP6/IPRAW6 + dual-stack
+TCPD/UDPD; commands OPEN/LISTEN/CONNECT/CONNECT6/DISCON/CLOSE/SEND/
+SEND_MAC/SEND_KEEP/RECV/SEND6; IPv6 net registers (LLAR/GUAR/SUB6R/GA6R,
+SLDIP6R, UIP6R/UPORT6R); masked interrupt chain (Sn_IMR/SIMR/SLIMR/IMR +
+IEN gate); RTR/RCR retry engine with TIMEOUT; Sn_KPALVTR auto-keepalive;
+NETMR Wake-on-LAN magic-packet detect; Sn_TTLR/Sn_TOSR/Sn_MSSR socket
+options; live host sockets for IPv4 + IPv6 (loopback-verified).
 
 ## License
 

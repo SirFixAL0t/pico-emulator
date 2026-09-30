@@ -39,6 +39,7 @@
         <input type="file" id="file-input" accept=".uf2,.elf,.bin" style="display:none">
       </div>
       <div class="info-row"><span>File:</span><span class="info-val" id="fw-name">none</span></div>
+      <p style="font-size:11px;opacity:.75">W6300 Ethernet (dual IPv4/IPv6 TCP/IP offload: TCP6/UDP6/TCPD/UDPD, CONNECT6/SEND6, masked INT, retry engine) is fully modeled — pick any <code>pico-w6300</code> Example with the <code>pico-w6300</code> board. Full feature list on the <a href="./docs.html">docs page</a>.</p>
     </div>
 
     <div class="panel">
@@ -274,6 +275,7 @@
         </tbody>
       </table>
       <p style="margin-top:8px">Full per-core feature tables live on the <a href="./docs.html">docs page</a>.</p>
+      <p style="font-size:11px;opacity:.75">v1.0.1 · 474 tests green · <a href="https://www.npmjs.com/package/picoemu">npm i picoemu</a></p>
     </div>
   </div>
 
@@ -434,10 +436,10 @@ function frame() {
       }
     } catch(e) {}
 
-    // pump W5500 proxy TX -> net-proxy WebSocket (CONNECT/LISTEN/CLOSE/SEND).
+    // pump W5500/W6300 proxy TX -> net-proxy WebSocket (CONNECT/LISTEN/CLOSE/SEND).
     // Same shared net_proxy as the Net panel; NOT the OpenHW gateway — the
-    // W5500 speaks socket-level TCP/UDP, not raw ETH (see docs note).
-    // W6300 pumps identically through its own queue/exports.
+    // offload chips speak socket-level TCP/UDP, not raw ETH (see docs note).
+    // W6300 pumps identically through its own queue/exports (incl. v6 framing).
     try {
       const ns = window.picoemuNetSocket;
       if (ns && ns.readyState === 1) {
@@ -967,7 +969,7 @@ window.devDump = () => {
   } catch(e) { $('dev-status').textContent = 'err ' + e.message; }
 };
 window.runWasmTests = async () => {
-  $('status').textContent = 'See node test-wasm.js (396 tests)';
+  $('status').textContent = 'See node test-wasm.js (474 tests)';
   try {
     const res = await fetch('./picoemu.wasm.wasm');
     $('status').textContent = `WASM ${(await res.arrayBuffer()).byteLength}B ready; run: node test-wasm.js`;

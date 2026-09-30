@@ -350,6 +350,18 @@ typedef struct {
     uint8_t  chip_locked;
     uint8_t  net_locked;
     uint8_t  phy_locked;
+    /* Socket-less RS pending (DS 7.6.6): set on SLCR_RS, cleared on
+     * SLIRCLR(RS) or when an RA is captured into PLR/PFR/VLTR/PLTR/PAR.
+     * Gates MACRAW RA-register capture so unsolicited RAs don't fake
+     * a solicited response. */
+    uint8_t  sl_rs_pending;
+    /* Socket-less command in flight (DS 7.6/Fig.26, 7.7.1): SLCR bits
+     * currently awaiting a wire reply or the SLRTR x (SLRCR+1) budget.
+     * Cleared when any solicited SLIR bit (or TOUT) is raised, or by
+     * SLIRCLR(all-solicited). While nonzero, a second SLCR write is
+     * ignored (silicon: one socket-less command at a time). */
+    uint8_t  sl_pending;
+    uint32_t sl_ticks;      /* poll ticks since the pending SLCR issued */
 } w6300_t;
 
 void w6300_init(w6300_t *dev);
