@@ -1,83 +1,67 @@
 # picoemu – RP2040/RP2350 Emulator (WebAssembly)
 
-> **Credit:** This is a WebAssembly port of [Night-Traders-Dev/Bramble](https://github.com/Night-Traders-Dev/Bramble) (MIT). All emulation core, peripherals and tests are from the original project (extended here to 474: VFP/DCP/RRX/STMIA/USAT/SMM/RV-bypass + W5500/W6300 MACRAW/pico-eth/pico-w6300 + B-package ADC/PWM/DMA + HSTX/TRNG/SHA-256 + SAU/MPU + DSP/MVE + Zfinx coverage). WASM build and browser UI by [danish9661/picoemu](https://github.com/danish9661/picoemu).
+[![npm version](https://img.shields.io/npm/v/pico-emu.svg)](https://www.npmjs.com/package/pico-emu)
+[![npm downloads](https://img.shields.io/npm/dm/pico-emu.svg)](https://www.npmjs.com/package/pico-emu)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://github.com/danish9661/pico-emulator/actions/workflows/test.yml/badge.svg)](https://github.com/danish9661/pico-emulator/actions/workflows/test.yml)
+[![Pages](https://github.com/danish9661/pico-emulator/actions/workflows/pages.yml/badge.svg)](https://danish9661.github.io/pico-emulator/)
+
+> **Credit:** Fork of [Night-Traders-Dev/Bramble](https://github.com/Night-Traders-Dev/Bramble) (MIT, © 2025 Night-Traders-Dev) — original M0+ core, peripherals and tests. Port, RP2350 cores (M33 + RV32), W6300 model, browser UI and all work since by [danish9661](https://github.com/danish9661) (© 2026, see [LICENSE](LICENSE)).
 
 A from-scratch emulator for Raspberry Pi RP2040 and RP2350 microcontrollers, supporting both ARM Cortex-M0+ (Thumb) and RISC-V Hazard3 (RV32IMAC) cores. Loads and executes UF2 and ELF firmware with accurate memory mapping and peripheral emulation. Compiles to WebAssembly via Emscripten for browser execution at ~8-10× speed over pure-JS emulators.
 
-**Live demo:** `https://danish9661.github.io/picoemu/` (`web/` deployed via GitHub Pages, `web/.nojekyll` + `/.github/workflows/pages.yml`).
+**Live demo:** `https://danish9661.github.io/pico-emulator/` (`web/` deployed via GitHub Pages, `web/.nojekyll` + `/.github/workflows/pages.yml`).
 
-**npm:** `npm i picoemu` — WASM build, browser UI and all demo UF2 firmware ([npmjs.com/package/picoemu](https://www.npmjs.com/package/picoemu)).
+**npm:** `npm i pico-emu` — WASM build, browser UI and all demo UF2 firmware ([npmjs.com/package/pico-emu](https://www.npmjs.com/package/pico-emu)).
 
 ```sh
-npx picoemu hello_world.uf2          # CLI: arch auto-detected from UF2
+npx pico-emu hello_world.uf2         # CLI: arch auto-detected from UF2
 ```
 
 Browser UI (`web/index.html`) has RP2040 / M33 / RV32 demo dropdowns, serial
 monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs/PICOEMU.md).
 
-## Current Status: v1.0.1
+## Current Status: v1.0.2
 
-  474/474 tests passing (zero warnings), sweep 70/70. **RP2040**: Boots littleOS shell (UART), TinyUSB CDC `hello_usb`, MicroPython REPL (USB CDC), all peripheral self-tests, `hello_world`/`gpio`/`timer`/`interrupt`/`name_prompt`. **RP2350 RISC-V**: Complete Hazard3 emulation with Zba, Zbb, Zbs, Zcb, Zcmp, and Zbkb extensions; boots littleOS to interactive shell (`health` OK). **RP2350 ARM**: Cortex-M33 mode (`-arch m33`) boots littleOS to shell with SageLang eval (`print(6*7)` = `42`, floats, VFP+DCP), supervisor health nominal. **Tri-architecture**: `-arch m0+` / `-arch m33` / `-arch rv32` with automatic firmware detection via UF2 family ID and picobin IMAGE_DEF blocks. **Networking**: Virtual network bus with TAP bridge, multi-instance Ethernet mesh, W5500/W6300 live sockets (via `web/net_proxy.py`), W5500/W6300 MACRAW socket-0 gateway path (one shared vnet bus for WiFi + Ethernet), and software-defined devices. **Wired Ethernet**: `pico-eth`/`pico-eth2` board (WIZnet W5500-EVB-Pico/Pico2 on SPI0, CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` board (WIZnet W6300-EVB-Pico/Pico2 on SPI0 QSPI-single, CS16/RST22/INT15) + in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` bare-metal guests (full DORA + ARP→SYN→GET→200→FIN on all three cores, `dhcp_peer_test.py`/`http_peer_test.py`) + Arduino-CLI `Wiznet5500lwIP` DHCP prove-out (M0+/M33 in-tree DORA green via live peer; Arduino E2E post-OFFER stall is guest-side RX pump, under test — see CHANGELOG). **Bluetooth**: internal HCI responder + loopback GATT (`wifi_ble_adv_rv32`/`wifi_ble_gatt_rv32` → `GATT-DONE`, sweep-locked) plus HCI-forward to Bumble/RootCanal/physical via `web/hci_bridge.py`; in-tree ARM `ble_adv` guests (M0+/M33) reach `ARM BLE LISTEN` (sweep-locked, like RV32).
+  474/474 tests passing, sweep 70/70. **RP2040 (M0+)**: littleOS shell, TinyUSB CDC `hello_usb`, MicroPython v1.22.1 REPL (USB CDC), all peripheral self-tests. **RP2350 ARM (M33, `-arch m33`)**: littleOS shell with Sage eval (`print(6*7)` = `42`), VFP single + deferred-compute double, TrustZone SAU/MPU, DSP scalar + MVE-Helium integer vectors. **RP2350 RISC-V (RV32, `-arch rv32`)**: Hazard3 RV32IMAC + Zba/Zbb/Zbs/Zcb/Zcmp + Zfinx single-float, CLINT, dual-hart; littleOS shell. Firmware auto-detects via UF2 family ID / picobin IMAGE_DEF. **Networking**: vnet bus (TAP bridge, peer mesh), W5500/W6300 live sockets (`-net-live`, `-net-live6300`, `web/net_proxy.py`), MACRAW socket-0 single-gateway path shared by WiFi + both Ethernet chips. **Wired Ethernet**: `pico-eth`/`pico-eth2` (W5500, SPI0 CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` (W6300 dual IPv4/IPv6 offload, SPI0 QSPI-single CS16/RST22/INT15); in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` guests (DORA + HTTP on all three cores) + Arduino `Wiznet5500lwIP` / `W6300lwIP` DORA prove-outs (see CHANGELOG). **Bluetooth**: HCI responder + GATT loopback (`GATT-DONE`, sweep-locked), HCI-forward to Bumble/RootCanal/physical (`web/hci_bridge.py`), ARM `ble_adv` guests reach `ARM BLE LISTEN`.
 
 ### Coverage
 
 | Area | Status | Details |
 |------|--------|---------|
-| RP2040 CPU | 65+ instructions | Full Thumb-1 + BL/MSR/MRS/DSB/DMB/ISB, O(1) dispatch, NZCV flags |
-| RP2350 RV | Complete | Hazard3: 130+ instructions (RV32IMAC + Zba/Zbb/Zbs/Zcb/Zcmp), Hazard3 CSRs, CLINT, SDK bootrom, icache, GDB, semihosting |
-| RP2350 ARM | Complete | Cortex-M33 (`-arch m33`): full Thumb-2 via existing engine, BASEPRI, M33 CPUID, UF2 auto-detect |
-| RP2350 Peripherals | Complete | TICKS, POWMAN, QMI, OTP+data, BOOTRAM, TIMER1, PIO2, GLITCH, CORESIGHT, ACCESSCTRL, 48 GPIO, SIO |
-| Dual-Core | Complete | RP2040: host-threaded, WFI, FIFO, spinlocks, auto-launch. RP2350: cooperative dual-hart with CLINT + SIO mailbox launch |
-| Memory Map | 100% | RP2040: Flash + XIP + SRAM + ROM (16KB) + all peripherals. RP2350: 520KB SRAM + 32KB ROM + CLINT + all RP2350 peripherals |
-| Boot | Complete | RP2040: vector table, boot2, ROM functions. RP2350: RISC-V bootrom (SP init, flash jump), picobin IMAGE_DEF parser |
-| Exceptions | 100% | ARM: tail-chaining, late-arriving, PRIMASK + FAULTMASK. RISC-V: mtvec direct/vectored, MRET, MIE/MPIE, Hazard3 ext IRQ routing |
-| Timing | Cycle-accurate | Configurable clock (`-clock 125`/`-clock 150`), ARMv6-M instruction costs, CLINT mtime, TIMER1 |
-| Debugging | GDB RSP | Breakpoints, watchpoints, conditional breakpoints, dual-core threads (`-gdb`), architecture-aware registers |
-| Flash | Write-through + FUSE | `-flash <path>` with sync; `-mount <dir>` for live host access (thread-safe) |
-| Storage | SD card + eMMC | SPI-attached file-backed block devices |
-| WiFi | CYW43 (Pico W) | gSPI-over-PIO, TAP bridge with auto IP/NAT (`-wifi`, `-tap`) |
-| Virtual Network | VNet bus | Central Ethernet frame router, TAP/NAT bridge (`-net`), peer mesh (`-net-peer`), W5500 live sockets (`-net-live`), W6300 live sockets (`-net-live6300`) |
-| Multi-Device | Wire + SDD | Wire UART/GPIO/Ethernet between instances, pluggable software-defined devices (`-sdd`) |
-| Performance | ICache + JIT | 64K decoded cache by default, optional hot-block JIT (`-jit`) |
-| Privilege | Auto-sudo | `-tap`, `-net`, `-mount` auto-escalate via sudo when needed |
-| Dev Tools | 18 tools | Semihosting, coverage, hotspots, profile, trace, callgraph, VCD, IRQ latency, stack check, bus logging, watch, expect, script, fault injection, heatmap, symbols, exit codes, timeouts |
-| Firmware Auto-Detect | UF2 + ELF | Auto-detects RP2040/RP2350-ARM/RP2350-RV from UF2 family ID or ELF machine type |
-| RV Performance | ICache | 64K-entry decoded instruction cache for flash/ROM fetches |
-| RV Semihosting | EBREAK | Full ARM semihosting protocol: SYS_WRITE0, SYS_WRITEC, SYS_WRITE, SYS_READC, SYS_EXIT, etc. via EBREAK |
- | Tests | 474 | CTest integrated, 60+ categories (23 RV incl. Zfinx + 8 M33 incl. SAU/MPU/DSP/MVE + 19 networking + 5 EEPROM + RP2350 HSTX/TRNG/SHA-256 + B-package ADC/PWM/DMA + USB multi-packet + NVIC user-IRQ + UART IRQ + CLINT subword tests + W6300 dual-stack/PACKET-INFO/RA-capture) |
+| RP2040 CPU | 65+ Thumb-1 | O(1) dispatch, NZCV, BL/MSR/MRS/barriers |
+| RP2350 ARM | Cortex-M33 | Thumb-2, BASEPRI, M33 CPUID, VFP single + DCP double, DSP scalar, MVE-Helium int |
+| RP2350 RV | Hazard3 RV32IMAC | Zba/Zbb/Zbs/Zcb/Zcmp + Zfinx float, custom CSRs, CLINT, bootrom, icache |
+| RP2350 Peripherals | Complete | TICKS, POWMAN, QMI, OTP+data, BOOTRAM, TIMER1, PIO2, HSTX, TRNG, SHA-256, 48 GPIO, SIO |
+| Memory Map | RP2040 + RP2350 | RP2040: 2MB flash + 264KB SRAM + 16KB ROM. RP2350: 4MB flash + 520KB SRAM + 32KB ROM + CLINT |
+| Boot | UF2 + ELF | boot2, ROM functions, RV bootrom, picobin IMAGE_DEF, family-ID arch detect |
+| Exceptions | ARM + RV | Tail-chaining, late-arriving, PRIMASK/FAULTMASK; mtvec, MRET, CLINT, Hazard3 ext IRQ |
+| Timing | Configurable | `-clock 125/150`, per-instruction costs, CLINT mtime, TIMER1 |
+| Debugging | GDB RSP + 18 tools | Breakpoints, coverage, trace, VCD, heatmap, fault injection (`-gdb`, `-semihosting`, …) |
+| Flash/Storage | Write-through | `-flash` sync, `-mount` FUSE, SD card + eMMC (SPI, file-backed) |
+| WiFi/BT | CYW43 (Pico W) | gSPI-over-PIO, scan/join, TAP bridge (`-wifi`, `-tap`), HCI responder + GATT, `-bt-hci` forward |
+| Virtual Network | VNet bus | TAP/NAT (`-net`), peer mesh (`-net-peer`), W5500 (`-net-live`) / W6300 (`-net-live6300`) live sockets |
+| Multi-Device | Wire + SDD | UART/GPIO/Ethernet instance links (`-wire-*`), TMP102 thermometer + 24LC256 EEPROM (`-sdd`) |
+| Performance | ICache + JIT | 64K decode cache default, `-jit` hot blocks; native ~86 MIPS, WASM ~22–25 MIPS |
+| Dev Tools | 18 tools | Semihosting, coverage, hotspots, profile, trace, callgraph, VCD, IRQ latency, stack check, watch, expect, script, fault injection, heatmap, symbols, exit codes, timeouts |
+ | Tests | 474 | CTest integrated; RV + M33 + networking + storage + W6300 dual-stack/PACKET-INFO/RA-capture |
 
 ### Peripherals
 
 | Peripheral | Address | Emulation Level |
 |------------|---------|-----------------|
-| GPIO | `0x40014000` / `0xD0000000` | Full (30 pins, SIO, IO_BANK0, PADS, edge/level interrupts) |
-| UART | `0x40034000` / `0x40038000` | Full (dual PL011, Tx+Rx, 16-deep FIFO, active-console stdin routing) |
-| SPI | `0x4003C000` / `0x40040000` | Full (dual PL022, 8-deep TX/RX FIFOs, device callbacks) |
-| I2C | `0x40044000` / `0x40048000` | Full (dual DW_apb_i2c, 16-deep RX FIFO, device callbacks) |
-| Timer | `0x40054000` | Full (64-bit counter, 4 alarms, interrupts) |
-| PWM | `0x40050000` | Full (8 slices, CSR/DIV/CTR/CC/TOP, interrupts) |
-| ADC | `0x4004C000` | Full (5 channels, temp sensor, FIFO, round-robin) |
-| DMA | `0x50000000` | Full (12 channels, chaining, 4 alias layouts) |
-| PIO | `0x50200000` / `0x50300000` | Full (2 blocks, all 9 opcodes, FIFOs, clock divider) |
-| SysTick | `0xE000E010` | Full (CSR/RVR/CVR/CALIB, TICKINT, COUNTFLAG) |
-| NVIC | `0xE000E100` | Full (priority preemption, 4 levels, SCB_SHPR) |
-| Resets | `0x4000C000` | Full (reset/unreset, RESET_DONE tracking) |
-| Clocks | `0x40008000` | Full (10 generators, FC0 dynamic freq, SELECTED) |
-| XOSC/PLLs | `0x40024000` | Full (STATUS.STABLE, CS.LOCK) |
-| Watchdog | `0x40058000` | Full (CTRL, TICK, SCRATCH[0-7], reboot with full multicore state reset) |
-| SIO | `0xD0000000` | Full (GPIO, FIFO, spinlocks, hardware divider, interpolators) |
-| ROM | `0x00000000` | Full (16KB, function table, soft-float/double, flash write) |
-| USB | `0x50110000` | Full (host enumeration, CDC data bridge, stdio_usb, multi-packet IN) |
-| SYSINFO | `0x40000000` | Stub (CHIP_ID=RP2040-B2, PLATFORM=ASIC) |
-| SYSCFG | `0x40004000` | Full (NMI mask, proc config, debug force, mem power-down) |
-| TBMAN | `0x4006C000` | Full (PLATFORM=ASIC, testbench manager) |
-| VREG | `0x40064000` | Full (VREG EN/VSEL/ROK, BOD EN/VSEL, CHIP_RESET W1C flags) |
-| IO_QSPI | `0x40018000` | Stub (6 QSPI GPIO pins, STATUS/CTRL) |
-| PADS_QSPI | `0x40020000` | Stub (QSPI pad electrical control) |
-| ROSC | `0x40060000` | Full (STATUS, RANDOMBIT LFSR, CTRL enable) |
-| RTC | `0x4005C000` | Full (LOAD strobe, calendar rollover, leap year, ticking) |
-| XIP Cache | `0x14000000` | Stub (always ready) + 16KB XIP SRAM |
-| CYW43 | Pico W via PIO/SPI | Functional (scan/connect path, WLAN framing, TAP bridge) |
+| GPIO / SIO | `0x40014000` / `0xD0000000` | Full: edge/level IRQs, FIFOs, spinlocks, divider, interpolators (48 pins on RP2350) |
+| UART | `0x40034000` / `0x40038000` | Full: dual PL011, 16-deep FIFOs, stdin routing |
+| SPI | `0x4003C000` / `0x40040000` | Full: dual PL022, FIFOs, device callbacks (SD, W5500, CYW43) |
+| I2C | `0x40044000` / `0x40048000` | Full: dual DW_apb_i2c, device callbacks (TMP102, EEPROM) |
+| Timer / SysTick | `0x40054000` / `0xE000E010` | Full: 64-bit + 4 alarms, TICKINT/COUNTFLAG |
+| PWM / ADC / DMA / PIO | `0x40050000` etc. | Full: PWM slices, ADC+temp, 12–16ch DMA, PIO exec (RP2350: 12-slice PWM, 9-mux ADC, 16ch DMA, PIO2) |
+| NVIC / SCB | `0xE000E100` | Full: preemption, PRIMASK/FAULTMASK, M33 BASEPRI, 64-IRQ RP2350 map |
+| Resets / Clocks / XOSC / PLL / WDT | `0x4000C000`… | Full: SELECTED, FC0, LOCK/STABLE, reboot |
+| SIO / ROM / USB / RTC | misc | Full: ROM table + soft-float/double, USB CDC bridge, RTC calendar |
+| XIP / Flash | `0x10000000`… | Full: cache control, write-through `-flash`, `-mount` FUSE |
+| CYW43 / W5500 / W6300 | boards | CYW43 gSPI WiFi/BT; W5500 SPI NIC; W6300 QSPI dual-stack NIC (see Networking) |
+| Stubs | misc | SYSINFO / IO_QSPI / PADS_QSPI / XIP-cache-timing (always-ready) |
 
 ### Storage Devices
 
@@ -88,7 +72,7 @@ monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs
 
 Both devices attach via `spi_attach_device()` callbacks with periodic flush and flush-on-exit.
 
-All peripherals support RP2040 atomic register aliases (SET/CLR/XOR).
+All peripherals support RP2040 atomic register aliases (SET/CLR/XOR). RP2350 adds: HSTX serializer, TRNG stream, SHA-256 (FIPS vector), SAU/MPU + faults + TT, DSP scalar + MVE-Helium integer vectors, Zfinx RV32 float.
 
 ### Known Limitations
 
@@ -144,42 +128,16 @@ Pico-emu builds with dual-core support enabled by default. Select the active cor
 
 ### Build Test Firmware
 
-**Hello World** (prints "Hello from ASM!"):
+In-tree guests are prebuilt (`web/*.uf2`, mirrored in `web/examples/`). To rebuild from source:
+
 ```bash
 cd test-firmware
 chmod +x build.sh
-./build.sh hello_world
+./build.sh hello_world   # hello_world, gpio, timer, interrupt, name_prompt, ...
+./build.sh all           # every guest incl. RV32 + eth_dhcp/eth_http(_6300)
 ```
 
-**GPIO Test** (toggles LED on GPIO 25):
-```bash
-cd test-firmware
-./build.sh gpio
-```
-
-**Timer Test** (measures elapsed time):
-```bash
-cd test-firmware
-./build.sh timer
-```
-
-**Alarm Test** (tests timer alarms):
-```bash
-cd test-firmware
-./build.sh alarm
-```
-
-**Interactive UART Prompt Test** (reads host stdin via `-stdin` and prints a greeting):
-```bash
-cd test-firmware
-./build.sh name_prompt
-```
-
-**Build All Tests**:
-```bash
-cd test-firmware
-./build.sh all
-```
+Peripheral demos: `gpio` (LED 25), `timer` (alarm IRQs), `uart_echo`/`name_prompt` (stdin), `spi`/`i2c`/`pwm`/`adc`/`dma`/`pio`/`usb`/`rtc`/`clocks`/`psm`/`fp`/`ws2812`; networking: `eth_dhcp`/`eth_http` (+`6300` W6300 variants, all three arches); wireless: `wifi_*`, `ble_adv`, `ble_gatt`.
 
 ### Run
 
@@ -189,7 +147,7 @@ cd test-firmware
 ./picoemu hello_world.uf2
 ./picoemu gpio_test.uf2
 ./picoemu timer_test.uf2
-./picoemu alarm_test.uf2
+./picoemu interrupt_test.uf2
 ./picoemu name_prompt.uf2 -stdin
 printf 'Ada\n' | ./picoemu name_prompt.uf2 -stdin
 ```
@@ -217,12 +175,12 @@ Pico-emu now supports flexible debug output modes:
 
 **Assembly Instruction Tracing** (detailed POP/BX/branch operations):
 ```bash
-./picoemu -asm alarm_test.uf2
+./picoemu -asm timer_test.uf2
 ```
 
 **Combined Debug + Assembly Tracing:**
 ```bash
-./picoemu -debug -asm alarm_test.uf2
+./picoemu -debug -asm timer_test.uf2
 ```
 
 **No Debug Output:**
@@ -235,28 +193,21 @@ Pico-emu now supports flexible debug output modes:
 ./picoemu firmware.uf2 -debug           # Core 0 debug output
 ./picoemu firmware.uf2 -debug -debug1   # Both cores debug
 ./picoemu firmware.uf2 -status          # Periodic status updates
-./picoemu firmware.uf2 -debug -status   # Debug + status combined
-./picoemu firmware.uf2 -stdin           # Route stdin to USB CDC when active, else UART0
-./picoemu firmware.uf2 -gdb            # Start GDB server on port 3333
-./picoemu firmware.uf2 -gdb 4444       # GDB server on custom port
-./picoemu firmware.uf2 -clock 125      # Real RP2040 timing (125 MHz)
-./picoemu firmware.uf2 -flash fs.bin   # Persistent flash storage
-./picoemu firmware.uf2 -debug-mem      # Log unmapped peripheral access
-./picoemu firmware.uf2 -jit            # Enable JIT for hot flash/ROM loops
-./picoemu firmware.uf2 -cores 2 -thread-quantum 128  # Tune threaded timeslice
+./picoemu firmware.uf2 -stdin           # stdin to USB CDC when active, else UART0
+./picoemu firmware.uf2 -gdb 4444        # GDB server on custom port
+./picoemu firmware.uf2 -clock 125       # Real RP2040 timing (125 MHz)
+./picoemu firmware.uf2 -flash fs.bin    # Persistent flash storage
+./picoemu firmware.uf2 -debug-mem       # Log unmapped peripheral access
+./picoemu firmware.uf2 -jit             # JIT for hot flash/ROM loops
+./picoemu firmware.uf2 -cores 2 -thread-quantum 128  # Threaded timeslice
 ```
 
-**RP2350 RISC-V Mode:**
+**RP2350 Modes** (`-arch m0+` default; `rv32` = Hazard3 RISC-V, `m33` = Cortex-M33):
 
 ```bash
-# Explicit architecture selection
-./picoemu firmware_rv.uf2 -arch rv32
-
-# Auto-detected from UF2 family ID (0xE48BFF5A) or ELF machine type
-./picoemu pico2_rv_firmware.uf2
-
-# With clock speed and flash persistence
-./picoemu firmware_rv.uf2 -arch rv32 -clock 150 -flash rv_flash.bin -stdin
+./picoemu firmware_rv.uf2 -arch rv32        # explicit RV32
+./picoemu pico2_rv_firmware.uf2             # auto-detected from UF2 family ID / picobin
+./picoemu firmware_m33.uf2 -arch m33 -clock 150 -flash m33_flash.bin -stdin
 ```
 
 **Networking (UART-to-TCP bridge):**
@@ -296,56 +247,37 @@ Pico-emu now supports flexible debug output modes:
 **Virtual Network (Internet Bridge + Mesh):**
 
 ```bash
-# Single-command internet bridge (auto-creates TAP, NAT, sudo)
+# Internet bridge (auto TAP + NAT, may sudo) and peer mesh
 ./picoemu firmware.uf2 -net -stdin
-
-# Mesh two Pico-emu instances via Ethernet-level peer link
 ./picoemu fw1.uf2 -net-peer /tmp/vnet.sock -stdin   # Terminal 1
 ./picoemu fw2.uf2 -net-peer /tmp/vnet.sock -stdin   # Terminal 2
 
-# W5500 live networking (real host TCP/UDP sockets)
+# Offload live sockets (real host TCP/UDP; W6300 incl. IPv6 loopback)
 ./picoemu w5500_firmware.uf2 -net -net-live -stdin
-
-# W6300 live networking (real host TCP/UDP sockets)
 ./picoemu w6300_firmware.uf2 -net -net-live6300 -stdin
 
-# pico-eth board (WIZnet W5500-EVB-Pico, RP2040) /
-# pico-eth2 board (WIZnet W5500-EVB-Pico2, RP2350): W5500 on SPI0 with real
-# board pins (CSn=GPIO17, RSTn=GPIO20, INTn=GPIO21). Identical wiring on
-# both boards — only the SoC differs. Off unless requested.
-./picoemu w5500_firmware.uf2 -board pico-eth -stdin            # stub
-./picoemu w5500_firmware.uf2 -board pico-eth -board-live -stdin  # live
-./picoemu w5500_firmware.uf2 -board pico-eth -board-spi 1 -stdin # on SPI1
-./picoemu w5500_firmware.uf2 -board pico-eth2 -stdin           # Pico2 label
-
-# pico-w6300 board (WIZnet W6300-EVB-Pico, RP2040) /
-# pico-w6300-2 board (WIZnet W6300-EVB-Pico2, RP2350): W6300 QSPI-single
-# on SPI0 with real board pins (CSn=GPIO16, RSTn=GPIO22, INTn=GPIO15).
-# Off unless requested.
-./picoemu w6300_firmware.uf2 -board pico-w6300 -stdin            # stub
+# Boards (separate SPI hardware, off unless requested)
+./picoemu w5500_firmware.uf2 -board pico-eth -stdin               # stub
+./picoemu w5500_firmware.uf2 -board pico-eth -board-live -stdin   # live
+./picoemu w5500_firmware.uf2 -board pico-eth -board-spi 1 -stdin  # SPI1
+./picoemu w5500_firmware.uf2 -board pico-eth2 -stdin              # Pico2 label
+./picoemu w6300_firmware.uf2 -board pico-w6300 -stdin             # stub
 ./picoemu w6300_firmware.uf2 -board pico-w6300 -board6300-live -stdin  # live
-./picoemu w6300_firmware.uf2 -board pico-w6300-2 -stdin          # Pico2 label
+./picoemu w6300_firmware.uf2 -board pico-w6300-2 -stdin           # Pico2 label
 
-# In-tree W5500 guests (no toolchain needed — UF2s ship in web/):
-# full DORA via the python peer (terminal 1 = guest, terminal 2 = peer):
+# In-tree guests (prebuilt in web/; M33 = _pico2 + pico-eth2/pico-w6300-2,
+# RV32 = _rv32 + -arch rv32). Terminal 1 = guest, terminal 2 = peer:
 ./picoemu web/eth_dhcp.uf2 -board pico-eth -net-peer /tmp/eth.sock -clock 125
 python3 test-firmware/dhcp_peer_test.py /tmp/eth.sock  # ALL DHCP CHECKS PASSED
-# DORA + HTTP client (ARP -> SYN -> GET -> 200 hello-eth -> FIN):
 ./picoemu web/eth_http.uf2 -board pico-eth -net-peer /tmp/eth.sock -clock 125
 python3 test-firmware/http_peer_test.py /tmp/eth.sock  # ALL HTTP CHECKS PASSED
-# M33: web/eth_dhcp_pico2.uf2 + -board pico-eth2; RV32: web/eth_dhcp_rv32.uf2 -arch rv32
-# Same DORA against the real Go gateway (needs openhw-studio-gateway running):
-./picoemu web/eth_dhcp.uf2 -board pico-eth -net -net-peer /tmp/gw.sock
-python3 web/gateway_bridge.py --sock /tmp/gw.sock --room lab  # lease .2
-
-# In-tree W6300 guests (no toolchain needed — UF2s ship in web/):
-# full DORA via the python peer (terminal 1 = guest, terminal 2 = peer):
 ./picoemu web/eth_dhcp6300.uf2 -board pico-w6300 -net-peer /tmp/eth.sock -clock 125
 python3 test-firmware/dhcp_peer_test.py /tmp/eth.sock  # ALL DHCP CHECKS PASSED
-# DORA + HTTP client (ARP -> SYN -> GET -> 200 hello-eth -> FIN):
 ./picoemu web/eth_http6300.uf2 -board pico-w6300 -net-peer /tmp/eth.sock -clock 125
-python3 test-firmware/http_peer_test.py /tmp/eth.sock  # with eth_http6300_common arch table
-# M33: web/eth_dhcp6300_pico2.uf2 + -board pico-w6300-2; RV32: web/eth_dhcp6300_rv32.uf2 -arch rv32
+python3 test-firmware/http_peer_test.py /tmp/eth.sock  # eth_http6300_common table
+# Same DORA via the Go gateway (openhw-studio-gateway running):
+./picoemu web/eth_dhcp.uf2 -board pico-eth -net -net-peer /tmp/gw.sock
+python3 web/gateway_bridge.py --sock /tmp/gw.sock --room lab  # lease .2
 
 # Wire Ethernet frames between instances
 ./picoemu fw_sensor.uf2 -wire-eth /tmp/mesh.sock -stdin
@@ -390,18 +322,17 @@ python3 test-firmware/http_peer_test.py /tmp/eth.sock  # with eth_http6300_commo
 ./picoemu python/micropython.uf2 -stdin -clock 125 -flash mpy.bin -sdcard sd.img
 ```
 
-**MicroPython REPL:**
+**MicroPython REPL** (`web/micropython_rp2040.uf2`, `web/micropython_rp2350.uf2`):
 
-Verified: bundled v1.22.1 boots to `>>>` over USB CDC and evaluates
-(`print(6*7)` → `42`), native and in-browser (`node test-wasm.js` asserts both).
+Bundled v1.22.1 boots to `>>>` over USB CDC and evaluates (`print(6*7)` → `42`), native and in-browser (`node test-wasm.js` asserts both).
 
 ```bash
-./picoemu python/micropython.uf2 -stdin -clock 125 -flash mpy.bin
+./picoemu web/micropython_rp2040.uf2 -stdin -clock 125 -flash mpy.bin
 ```
 
 Output:
 ```
-MicroPython v1.27.0 on 2025-12-09; Raspberry Pi Pico with RP2040
+MicroPython v1.22.1 on 2024-01-05; Raspberry Pi Pico with RP2040
 Type "help()" for more information.
 >>>
 ```
@@ -409,29 +340,11 @@ Type "help()" for more information.
 **GDB Remote Debugging:**
 ```bash
 # Terminal 1: Start emulator with GDB server
-./picoemu firmware.uf2 -gdb
+./picoemu firmware.uf2 -gdb            # default :3333
+./picoemu firmware.uf2 -gdb 4444       # custom port
 
 # Terminal 2: Connect GDB
 arm-none-eabi-gdb firmware.elf -ex "target remote :3333"
-```
-
-Expected output:
-```
-╔════════════════════════════════════════════════════════════╗
-║       Pico-emu RP2040 Emulator - Dual-Core Mode           ║
-╚════════════════════════════════════════════════════════════╝
-
-[Init] Initializing dual-core RP2040 emulator...
-[Init] Loading firmware: littleOS.uf2
-[Init] Firmware loaded successfully
-[Boot] Starting Core 0 from flash...
-[Boot] Core 0 SP = 0x20020000
-[Boot] Core 0 PC = 0x10000104
-[Boot] Core 1 held in reset (waiting for Core 0 to start)
-
-═══════════════════════════════════════════════════════════
-Executing...
-═══════════════════════════════════════════════════════════
 ```
 
 ## Project Structure
@@ -439,359 +352,66 @@ Executing...
 ```
 Pico-emu/
 ├── src/
-│   ├── main.c          # Unified entry point, boot, execution (single & dual)
-│   ├── cpu.c           # Cortex-M0+ core: O(1) dispatch, dual-core, exceptions
-│   ├── instructions.c  # 60+ Thumb instruction implementations
-│   ├── membus.c        # Memory bus: pointer-based routing, peripheral stubs
-│   ├── elf.c           # ELF32 ARM binary loader
-│   ├── uf2.c           # UF2 file loader
-│   ├── gpio.c          # GPIO peripheral emulation
-│   ├── timer.c         # Hardware timer emulation
-│   ├── nvic.c          # NVIC interrupt controller
-│   ├── clocks.c        # Resets, Clocks, XOSC, PLLs, Watchdog
-│   ├── adc.c           # ADC peripheral emulation
-│   ├── rom.c           # ROM function table with Thumb code stubs
-│   ├── uart.c          # Dual PL011 UART emulation
-│   ├── spi.c           # Dual PL022 SPI emulation
-│   ├── i2c.c           # Dual DW_apb_i2c emulation
-│   ├── pwm.c           # 8-slice PWM emulation
-│   ├── dma.c           # 12-channel DMA controller
-│   ├── pio.c           # Dual PIO block emulation (full instruction execution)
-│   ├── usb.c           # USB controller with host enumeration + CDC bridge
-│   ├── rtc.c           # RTC peripheral (ticking, calendar, leap year)
-│   ├── gdb.c           # GDB remote serial protocol stub
-│   ├── netbridge.c     # UART-to-TCP bridge
-│   ├── wire.c          # Multi-instance Unix socket wiring
-│   ├── vnet.c          # Virtual network bus (TAP/peer/port routing)
-│   ├── sdd.c           # Software-defined device framework
-│   ├── sdd_thermo.c    # TMP102 I2C thermometer device model
-│   ├── sdd_eeprom.c    # 24LC256 I2C EEPROM model (32KB, page-wrap, file-backed)
-│   ├── storage.c       # Flash write-through persistence
-│   ├── sdcard.c        # SD card SPI emulation (SDHC, file-backed)
-│   ├── emmc.c          # eMMC SPI emulation (file-backed)
-│   ├── fatfs.c         # FAT16 helpers for flash/FUSE
-│   ├── fuse_mount.c    # Optional FUSE mount integration
-│   ├── w5500.c         # W5500 Ethernet device model
-│   ├── w6300.c         # W6300 Ethernet device model (QSPI-single)
-│   ├── bme280.c        # BME280 sensor model
-│   ├── corepool.c      # Host-threaded execution + core allocation
-│   ├── cyw43.c         # CYW43 WiFi emulation
-│   ├── tapif.c         # TAP bridge for Pico W traffic
-│   ├── devtools.c      # Developer tools (semihosting, coverage, etc.)
-│   └── rp2350_rv/
-│       ├── rv_cpu.c    # Hazard3 RV32IMAC CPU engine (93 instructions)
-│       ├── rv_clint.c  # CLINT interrupt controller (mtime/mtimecmp/MSIP)
-│       ├── rv_membus.c # RP2350 memory bus (520KB SRAM, peripheral routing)
-│       └── rv_bootrom.c # Minimal RISC-V bootrom
-├── include/
-│   ├── emulator.h      # Core definitions, CPU state, memory layout
-│   ├── instructions.h  # Instruction handler prototypes
-│   ├── gpio.h          # GPIO register definitions
-│   ├── timer.h         # Timer register definitions
-│   ├── nvic.h          # NVIC register definitions
-│   ├── clocks.h        # Clock-domain peripheral definitions
-│   ├── adc.h           # ADC register definitions
-│   ├── rom.h           # ROM layout and function codes
-│   ├── uart.h          # PL011 UART register definitions
-│   ├── spi.h           # PL022 SPI register definitions
-│   ├── i2c.h           # DW_apb_i2c register definitions
-│   ├── pwm.h           # PWM register definitions
-│   ├── dma.h           # DMA controller register definitions
-│   ├── pio.h           # PIO register definitions
-│   ├── usb.h           # USB controller register definitions
-│   ├── rtc.h           # RTC register definitions
-│   ├── gdb.h           # GDB RSP stub definitions
-│   ├── netbridge.h     # UART network bridge definitions
-│   ├── wire.h          # Multi-instance wire protocol definitions
-│   ├── vnet.h          # Virtual network bus definitions
-│   ├── sdd.h           # Software-defined device definitions
-│   ├── storage.h       # Flash write-through definitions
-│   ├── sdcard.h        # SD card SPI definitions
-│   ├── emmc.h          # eMMC SPI definitions
-│   ├── fatfs.h         # FAT filesystem helpers
-│   ├── fuse_mount.h    # FUSE mount definitions
-│   ├── w5500.h         # W5500 device definitions
-│   ├── w6300.h         # W6300 device definitions
-│   ├── bme280.h        # BME280 device definitions
-│   ├── corepool.h      # Core pool definitions
-│   ├── cyw43.h         # CYW43 WiFi definitions
-│   ├── tapif.h         # TAP bridge definitions
-│   ├── devtools.h      # Developer tools definitions
-│   ├── rp2350_rv/
-│   │   ├── rv_cpu.h        # RISC-V CPU state, CSR defs, instruction decode
-│   │   ├── rv_clint.h      # CLINT interrupt controller definitions
-│   │   ├── rv_membus.h     # RP2350 memory bus definitions
-│   │   ├── rv_bootrom.h    # Bootrom generator definitions
-│   │   └── rp2350_memmap.h # RP2350 memory map constants
-│   └── rp2350_arm/
-│       └── m33_cpu.h       # Cortex-M33 placeholder
-├── tests/
- │   └── test_suite.c    # Unit test suite (474 tests, verbose, CTest integrated)
-├── test-firmware/
-│   ├── hello_world.S   # Assembly UART test
-│   ├── gpio_test.S     # Assembly GPIO test
-│   ├── timer_test.S    # Assembly timer test
-│   ├── alarm_test.S    # Assembly alarm test
-│   ├── interrupt_test.S # Assembly interrupt test
-│   ├── linker.ld       # Memory layout definition
-│   ├── uf2conv.py      # UF2 conversion utility
-│   └── build.sh        # Firmware build script
-├── docs/
-│   ├── GPIO.md         # GPIO peripheral documentation
-│   ├── NVIC_audit_report.md # NVIC audit findings and recommendations
-│   └── ROADMAP.md      # Development roadmap and feature status
-├── CMakeLists.txt      # Build configuration
-├── build.sh            # Top-level build script
-├── CHANGELOG.md        # Version history and changes
-└── README.md           # This file
+│   ├── main.c / picoemu_wasm.c  # Native CLI / WASM embedding entry points
+│   ├── cpu.c / instructions.c / thumb32.c  # M0+ + M33 Thumb engines
+│   ├── rp2350_arm/m33_cpu.c     # Cortex-M33 overlay (BASEPRI, VFP/DCP, DSP/MVE)
+│   ├── rp2350_rv/               # Hazard3 RV32: rv_cpu, rv_clint, rv_membus,
+│   │                            #   rv_bootrom, rp2350_periph, picobin (+Zfinx)
+│   ├── membus.c / uf2.c / elf.c # Bus routing, firmware loaders
+│   ├── gpio/timer/uart/spi/i2c/pwm/adc/dma/pio/nvic/clocks/usb/rtc/rom.c
+│   ├── cyw43.c / w5500.c / w6300.c / bme280.c  # Device models
+│   ├── vnet/tapif/netbridge/wire.c  # Virtual net bus, TAP, bridges, mesh
+│   ├── sdd*.c / storage/sdcard/emmc/fatfs/fuse_mount.c
+│   ├── gdb.c / devtools.c / corepool.c
+│   └── wasm_net.c / fuse_mount_wasm.c  # Browser shims
+├── include/ (+ rp2350_arm/ + rp2350_rv/)  # Per-module register definitions
+├── tests/test_suite.c           # 474 unit tests (CTest integrated)
+├── test-firmware/               # .S guests + gen_*.py + *_peer_test.py + sweep_all.sh
+├── web/                         # Browser bench (index/docs/about), cli.js,
+│                                #   picoemu.wasm.*, prebuilt *.uf2, net/hci bridges
+├── openhw-studio-gateway/       # Go gateway: DHCP, RA/NA/echo, NAT64/DNS64
+├── docs/ (GATEWAY/GPIO/NETWORKING/NVIC_audit/PICOEMU/ROADMAP/WASM/audit_report)
+├── CMakeLists.txt / build.sh / build_wasm.sh / build_wasm_threads.sh
+├── CHANGELOG.md / LICENSE / README.md
 ```
 
-## Hardware Timer ✨
+## Peripheral Notes
 
-### Features
-
-- **64-bit Counter**: Microsecond-resolution time tracking
-- **4 Independent Alarms**: ALARM0-3 with configurable trigger points
-- **Interrupt Generation**: Sets INTR bits when alarms fire and signals NVIC IRQ 0-3 when enabled
-- **Write-1-to-Clear**: Standard ARM interrupt acknowledgment
-- **Pause/Resume**: Stop timer for debugging
-- **Atomic Operations**: Armed register shows active alarms
-
-### Registers
-
-- **TIMER_TIMELR/TIMEHR** (0x4005400C/08): Read 64-bit counter
-- **TIMER_TIMELW/TIMEHW** (0x40054004/00): Write 64-bit counter
-- **TIMER_ALARM0-3** (0x40054010-1C): Set alarm compare values
-- **TIMER_ARMED** (0x40054020): Shows which alarms are active
-- **TIMER_INTR** (0x40054034): Raw interrupt status (W1C)
-- **TIMER_INTE** (0x40054038): Interrupt enable mask
-- **TIMER_INTS** (0x40054040): Masked interrupt status
-
-### Quick Example
-
-```assembly
-/* Read current time */
-ldr r0, =0x4005400C      /* TIMER_TIMELR */
-ldr r1, [r0]             /* R1 = current time in microseconds */
-
-/* Set alarm for 1000us in future */
-ldr r2, =1000
-add r1, r2               /* R1 = target time */
-ldr r0, =0x40054010      /* TIMER_ALARM0 */
-str r1, [r0]             /* Alarm armed automatically */
-
-/* Wait for alarm (polling) */
-poll:
-    ldr r0, =0x40054034  /* TIMER_INTR */
-    ldr r1, [r0]
-    movs r2, #1
-    tst r1, r2           /* Check bit 0 */
-    beq poll
-
-/* Clear interrupt */
-movs r1, #1
-ldr r0, =0x40054034      /* TIMER_INTR */
-str r1, [r0]             /* Write 1 to clear */
-```
-
-## GPIO Peripheral
-
-### Features
-
-- **30 GPIO Pins** (GPIO 0-29, matching RP2040)
-- **SIO Fast Access**: Direct read/write at 0xD0000000
-- **Atomic Operations**: SET, CLR, XOR registers for thread-safe bit manipulation
-- **Function Select**: All 10 GPIO functions (SIO, UART, SPI, I2C, PWM, PIO0/1, etc.)
-- **Per-Pin Configuration**: Control and status registers via IO_BANK0
-- **Pad Control**: Pull-up/down, drive strength via PADS_BANK0
-- **Interrupt Support**: Full edge/level detection with NVIC delivery (IRQ 13)
-
-### Quick Example
-
-```assembly
-/* Configure GPIO 25 as output (LED on Pico) */
-ldr r0, =0x400140CC      /* GPIO25_CTRL */
-movs r1, #5              /* Function 5 = SIO */
-str r1, [r0]
-
-/* Enable output */
-ldr r0, =0xD0000024      /* SIO_GPIO_OE_SET */
-ldr r1, =(1 << 25)       /* Bit 25 */
-str r1, [r0]
-
-/* Turn LED on */
-ldr r0, =0xD0000014      /* SIO_GPIO_OUT_SET */
-str r1, [r0]
-```
-
-See [docs/GPIO.md](docs/GPIO.md) for complete documentation.
-
-## Dual-Core Support ✨
-
-### Features
-
-- **Independent Core Execution**: Both cores run independently with their own:
-  - Program counters (PC)
-  - Stack pointers (SP)
-  - Register sets (R0-R12, LR)
-  - Debug flags (-debug, -debug1)
-
-- **Memory Sharing**:
-  - **Flash (2 MB)**: Shared and execute-only
-  - **Core 0 RAM (128 KB)**: 0x20000000 - 0x2001FFFF
-  - **Core 1 RAM (128 KB)**: 0x20020000 - 0x2003FFFF
-  - **Shared RAM (64 KB)**: 0x20040000 - 0x2004FFFF
-
-- **Inter-Core Communication**:
-  - **Dual FIFOs**: Core 0 ↔ Core 1 messaging
-  - **Spinlocks**: Hardware-level synchronization (32 spinlocks)
-  - **SIO Atomic Operations**: Thread-safe bit manipulation
-
-### Memory Layout (Dual-Core)
-
-```
-Flash:            0x10000000 - 0x10200000  (2 MB, shared)
-Core 0 RAM:       0x20000000 - 0x20020000  (128 KB, core-local)
-Core 1 RAM:       0x20020000 - 0x20040000  (128 KB, core-local)
-Shared RAM:       0x20040000 - 0x20050000  (64 KB, shared)
-Total RAM:        320 KB usable, 264 KB available
-```
-
-### Usage Example
-
-```c
-// In C firmware code for dual-core operation:
-
-// Core 0: Send message to Core 1
-fifo_push(CORE0, 0x12345678);
-
-// Core 1: Receive message
-uint32_t msg = fifo_pop(CORE1);
-
-// Both cores: Synchronized access to shared memory
-spinlock_acquire(0);
-shared_counter++;
-spinlock_release(0);
-```
-
-### Building Dual-Core Firmware
-
-Most firmware builds naturally for dual-core:
-
-```bash
-# In your firmware makefile:
-make CORES=2  # Compiles with dual-core definitions
-```
-
-Then run with:
-```bash
-./picoemu firmware.uf2 -status  # Show status for both cores
-```
+- **Timer** (`0x40054000`): 64-bit counter, ALARM0-3 + NVIC IRQ 0-3, W1C INTR/INTE/INTS, ARMED. Try `timer_test.uf2`.
+- **GPIO** (`0x40014000`, SIO `0xD0000000`): pins + function select + SIO atomics + edge/level IRQs (48 pins on RP2350). See [docs/GPIO.md](docs/GPIO.md). Try `gpio_test.uf2` (LED 25).
+- **Dual-core**: independent PCs/SPs/register sets; shared flash + per-core RAM + shared RAM; FIFOs, 32 spinlocks, SIO atomics. `-cores 1|2`, `-status`, `-thread-quantum N`.
 
 ## Technical Implementation
 
 ### Memory Map
 
-The emulator accurately models the RP2040 address space:
-- **Flash (XIP)**: 0x10000000 - 0x101FFFFF (2MB executable, + aliases at 0x11/0x12/0x13)
-- **XIP Cache Control**: 0x14000000 (CTRL, FLUSH, STAT, counters)
-- **XIP SRAM**: 0x15000000 - 0x15003FFF (16KB cache as SRAM)
-- **SRAM**: 0x20000000 - 0x20041FFF (264KB, + mirror alias at 0x21000000)
-- **APB Peripherals**: 0x40000000 - 0x4FFFFFFF (UART, GPIO, timers, etc.)
-- **SIO**: 0xD0000000 - 0xD0000FFF (Single-cycle I/O, GPIO fast access)
+- **Flash (XIP)**: `0x10000000`+ (2MB RP2040 / 4MB RP2350, aliases `0x11/0x12/0x13`)
+- **SRAM**: `0x20000000`+ (264KB RP2040 / 520KB RP2350, mirror `0x21000000`)
+- **ROM**: `0x00000000` (16KB RP2040 / 32KB RP2350, function table + soft-float/double)
+- **Peripherals**: `0x40000000`+ APB, `0xD0000000` SIO, `0xE000E000` SysTick/NVIC, RP2350 CLINT
+- **XIP cache**: `0x14000000` CTRL/FLUSH/STAT + 16KB XIP SRAM `0x15000000`
 
-All accesses respect alignment requirements and return appropriate values for unimplemented regions.
+### Timing Model
 
-### Peripheral Integration
-
-Peripherals are integrated into the memory bus (`membus.c`):
-- Reads/writes to peripheral address ranges are routed to peripheral modules
-- GPIO: `0x40014000` (IO_BANK0), `0x4001C000` (PADS), `0xD0000000` (SIO)
-- Timer: `0x40054000` (64-bit counter, 4 alarms, interrupts)
-- UART: `0x40034000` / `0x40038000` (PL011 dual)
-- SPI: `0x4003C000` / `0x40040000` (PL022 dual)
-- I2C: `0x40044000` / `0x40048000` (DW_apb_i2c dual)
-- PWM: `0x40050000` (8 slices)
-- DMA: `0x50000000` (12 channels with chaining)
-- PIO: `0x50200000` / `0x50300000` (2 blocks, 4 SMs each, full instruction execution)
-- XIP Cache: `0x14000000` (CTRL, FLUSH, STAT, counters, stream)
-- XIP SRAM: `0x15000000` (16KB cache as SRAM)
-- ROM: `0x00000000` (16KB with function table and Thumb code)
-
-### Timer Timing Model
-
-The timer uses a cycle-accurate timing model with configurable clock frequency:
-- **Default: 1 MHz** (1 cycle = 1 µs, fast-forward mode for speed)
-- **Real RP2040: 125 MHz** (`-clock 125`, 125 cycles per microsecond)
-- Each instruction costs 1-4+ CPU cycles based on the ARMv6-M instruction timing table
-- A cycle accumulator converts CPU cycles to microseconds for the timer
-- SysTick counts in raw CPU cycles (correct per ARM Cortex-M specification)
-
-Alarms trigger when:
-```c
-if (timer_low_32bits >= alarm_value) {
-    set_interrupt_bit();
-    disarm_alarm();
-}
-```
+Configurable clock (`-clock 1` fast-forward default, `-clock 125/150` real silicon):
+per-instruction cycle costs feed a cycle accumulator for the timer; SysTick counts raw CPU
+cycles per ARM spec. I/O split: firmware output on stdout, diagnostics on stderr.
 
 ### Instruction Dispatch
 
-Instructions are dispatched via a 256-entry O(1) lookup table indexed by `instr >> 8`:
-
-1. **32-bit instructions** (BL/BLX, MSR/MRS, DSB/DMB/ISB) detected by top-5-bit check and handled before table lookup
-2. **16-bit instructions** dispatched via `dispatch_table[instr >> 8](instr)` in constant time
-3. **Secondary dispatchers** handle entries where multiple instructions share the same top byte (ALU block 0x40-0x43, hints 0xBF, etc.)
-4. **`pc_updated` flag**: Handlers that modify PC set this flag; `cpu_step()` auto-advances PC by 2 only if unset
-
-### Flag Management
-
-The emulator implements full APSR flag semantics:
-- **N (Negative)**: Bit 31 of result
-- **Z (Zero)**: Result equals zero
-- **C (Carry)**: Unsigned overflow (for ADD) or NOT borrow (for SUB)
-- **V (Overflow)**: Signed overflow (operands same sign, result different)
-
-Helper functions `update_add_flags()` and `update_sub_flags()` ensure consistency across all arithmetic instructions.
+256-entry O(1) table on `instr >> 8` (32-bit BL/MSR/MRS/barriers pre-decoded, secondary
+dispatchers for shared top bytes); `pc_updated` flag controls auto-advance. Full APSR
+NZCV via shared add/sub flag helpers.
 
 ### UF2 Loading
 
-The UF2 loader validates:
-- Magic numbers (0x0A324655, 0x9E5D5157, 0x0AB16F30)
-- Target address in flash range
-- Payload size bounds (up to 476 bytes per block)
-- Overflow-safe target calculations before writing to flash
-
-Multi-block firmware images are supported with sequential loading, and malformed or out-of-range blocks are rejected without modifying flash.
+Validates magic (`0x0A324655/0x9E5D5157/0x0AB16F30`), flash range, 476B payload bound,
+overflow-safe targets; multi-block supported, malformed blocks rejected cleanly.
 
 ### Dual-Core Architecture
 
-**Core Synchronization**:
-- Both cores execute independently in the main loop
-- `dual_core_step()` advances both cores one instruction each
-- `any_core_running()` checks if either core is still executing
-- Shared state (memory, peripherals) is automatically synchronized
-
-**FIFO Implementation**:
-```c
-typedef struct {
-    uint32_t buffer[FIFO_DEPTH];  // 8 entries per FIFO
-    uint16_t write_ptr;
-    uint16_t read_ptr;
-    uint16_t count;
-} fifo_t;
-```
-
-**Spinlock Implementation**:
-```c
-uint32_t spinlock_acquire(uint32_t lock_id) {
-    if (spinlocks[lock_id] & SPINLOCK_LOCKED) {
-        return 0;
-    }
-    spinlocks[lock_id] = SPINLOCK_VALID | SPINLOCK_LOCKED;
-    return 1u << lock_id;
-}
-```
+Both cores step independently with synchronized shared state; SIO FIFOs + 32 spinlocks
+for messaging/locking (`-cores 1|2`, `-status`, `-thread-quantum N`).
 
 ## Performance
 
@@ -816,20 +436,17 @@ For benchmarking details, see `tests/benchmark.c`.
 
 ## Future Work
 
-1. **Timing fidelity**: DMA pacing, high-speed PIO timing, and more USB edge cases.
-2. **Device breadth**: More SPI/I2C SDD models (accelerometers, displays, EEPROMs).
-3. **Tooling**: More firmware examples, benchmarks, and workflow automation around regression testing.
-4. **Networking depth**: DHCP server in vnet, mDNS relay, packet capture/replay tooling.
+1. **Timing fidelity**: DMA pacing, high-speed PIO timing, more USB edge cases.
+2. **Device breadth**: more SPI/I2C SDD models.
+3. **Networking depth**: DHCP server in vnet, mDNS relay, packet capture/replay.
 
 ## Contributing
 
-The Pico-emu project is open for contributions! Areas that need help:
+PRs welcome: firmware coverage, device models, docs. Verify with
+`ctest --test-dir build --output-on-failure`. History: [CHANGELOG.md](CHANGELOG.md);
+deep dives: [docs/](docs/).
 
-1. **Testing**: Firmware coverage, edge cases, and performance benchmarks.
-2. **Device models**: Sensors, networking peripherals, and board-specific integrations.
-3. **Documentation**: Register descriptions, usage examples, architecture guides
-
-Run `ctest --test-dir build --output-on-failure` to verify changes don't break existing tests. See [CHANGELOG.md](CHANGELOG.md) for release history and [docs/](docs/) for detailed technical documentation.
+## License
 
 ## License
 

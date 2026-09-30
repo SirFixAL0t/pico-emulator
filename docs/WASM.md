@@ -1,6 +1,8 @@
 # picoemu – WebAssembly Port
 
-Compiled from C (picoemu past v0.50.0) to WASM via Emscripten (`emsdk`) for browser execution. Published to npm as [`picoemu`](https://www.npmjs.com/package/picoemu) with Node CLI (`cli.js`) — see `docs/PICOEMU.md` for the user/API reference.
+Compiled from C (picoemu past v0.50.0) to WASM via Emscripten (`emsdk`) for browser execution. Published to npm as [`pico-emu`](https://www.npmjs.com/package/pico-emu) with Node CLI (`cli.js`) — see `docs/PICOEMU.md` for the user/API reference.
+
+> **Repo moved:** `danish9661/picoemu` → [`danish9661/pico-emulator`](https://github.com/danish9661/pico-emulator) (demo + npm package unchanged in shape: `https://danish9661.github.io/pico-emulator/`, `npm i pico-emu`).
 
 ## Build
 
@@ -26,7 +28,7 @@ USB (`src/usb.c`): WASM CDC OUT via `putchar` (serial monitor), IN via `usb_cdc_
 
 ## Web UI (`web/index.html`)
 
-`import PicoemuModule from './picoemu.wasm.js'` with `EXPORT_ES6=1` `print/printErr:console.log` avoids red. Features: drag-drop UF2/ELF, three demo dropdowns (RP2040 / M33 / RV32: `hello_world` `gpio_test` `timer_test` `interrupt_test` `name_prompt` `littleos`, `littleos_pico2`, `littleos_pico2_riscv`, all `*_test`/`*_pico2`/`*_rv32` demos, plus `eth_dhcp`/`eth_http` per arch on the pico-eth boards, `eth_dhcp6300` per arch on the pico-w6300 boards, and `ble_adv` ARM guests) in `web/` and `web/examples/`, serial monitor UART0 (+USB-CDC via `putchar`), GPIO viewer (`get_gpio_raw||get_gpio`), core PC/SP/halted/MIPS + gdb-stop `perf-info`, clock select, cores/JIT/debug wired to `picoemu_set_cores/jit/debug`, flash/SD upload to `picoemu_flash_write/sdcard_load` + MEMFS/IDBFS, Net/GDB/W5500/ETH WebSocket via `picoemu_net_push_rx/eth_push_rx/w5500_push_rx/gdb_push_rx` + `picoemuNetSocket`/`picoemuGDB` + pump in `frame()`, Wire via `BroadcastChannel` + `picoemuWireRx/GpioRx/EthRx`, Devtools panel (Cov/Trace/Hot/Prof/Call/VCD/IRQ/Stack/Heat + Dump+Download via `FS.readFile` Blobs), Threads panel (SAB detect, `serve_coop.py` COOP/COEP, `picoemu_worker.js` off-thread stepping, `build_wasm_threads.sh -pthread` variant), Tests panel (`node test-wasm.js`; `PICOEMU_TEST_GATEWAY=1` adds the WASM gateway E2E: in-process WS gateway DHCP+ARP, Pico SDK join sample gets .2; `node test-wasm-ble.js` runs the BLE E2E: in-process WS HCI controller answers the RV32 BLE demo through ADV-OK), proxy hint `python3 web/net_proxy.py --ws 8765`, `web/.nojekyll` `/.github/workflows/pages.yml` deploy `web/` to `https://danish9661.github.io/picoemu/`.
+`import PicoemuModule from './picoemu.wasm.js'` with `EXPORT_ES6=1` `print/printErr:console.log` avoids red. Features: drag-drop UF2/ELF, three demo dropdowns (RP2040 / M33 / RV32: `hello_world` `gpio_test` `timer_test` `interrupt_test` `name_prompt` `littleos`, `littleos_pico2`, `littleos_pico2_riscv`, all `*_test`/`*_pico2`/`*_rv32` demos, plus `eth_dhcp`/`eth_http` per arch on the pico-eth boards, `eth_dhcp6300` per arch on the pico-w6300 boards, and `ble_adv` ARM guests) in `web/` and `web/examples/`, serial monitor UART0 (+USB-CDC via `putchar`), GPIO viewer (`get_gpio_raw||get_gpio`), core PC/SP/halted/MIPS + gdb-stop `perf-info`, clock select, cores/JIT/debug wired to `picoemu_set_cores/jit/debug`, flash/SD upload to `picoemu_flash_write/sdcard_load` + MEMFS/IDBFS, Net/GDB/W5500/ETH WebSocket via `picoemu_net_push_rx/eth_push_rx/w5500_push_rx/gdb_push_rx` + `picoemuNetSocket`/`picoemuGDB` + pump in `frame()`, Wire via `BroadcastChannel` + `picoemuWireRx/GpioRx/EthRx`, Devtools panel (Cov/Trace/Hot/Prof/Call/VCD/IRQ/Stack/Heat + Dump+Download via `FS.readFile` Blobs), Threads panel (SAB detect, `serve_coop.py` COOP/COEP, `picoemu_worker.js` off-thread stepping, `build_wasm_threads.sh -pthread` variant), Tests panel (`node test-wasm.js`; `PICOEMU_TEST_GATEWAY=1` adds the WASM gateway E2E: in-process WS gateway DHCP+ARP, Pico SDK join sample gets .2; `node test-wasm-ble.js` runs the BLE E2E: in-process WS HCI controller answers the RV32 BLE demo through ADV-OK), proxy hint `python3 web/net_proxy.py --ws 8765`, `web/.nojekyll` `/.github/workflows/pages.yml` deploy `web/` to `https://danish9661.github.io/pico-emulator`.
 
 ## Chips Verified (Arduino CLI `rp2040:rp2040@6.0.0`)
 
@@ -43,7 +45,7 @@ All `src/*` compiled: GPIO, UART PL011, SPI PL022, I2C DW_apb_i2c, Timer 64-bit,
 
 ## Credit
 
-Original emulator: [Night-Traders-Dev/Bramble](https://github.com/Night-Traders-Dev/Bramble) MIT. This repo (`danish9661/picoemu`) is a WASM port with browser UI, `build_wasm.sh`, `src/picoemu_wasm.c`, `web/` for GitHub Pages + npm (`picoemu`).
+Original emulator: [Night-Traders-Dev/Bramble](https://github.com/Night-Traders-Dev/Bramble) MIT. This repo (`danish9661/pico-emulator`) is a WASM port with browser UI, `build_wasm.sh`, `src/picoemu_wasm.c`, `web/` for GitHub Pages + npm (`pico-emu`).
 
 ## Deploy
 

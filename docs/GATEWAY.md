@@ -37,7 +37,7 @@ other configuration needed.
 ## Node CLI
 
 ```sh
-npx picoemu wifi_demo.uf2 --gateway ws://localhost:5090/api/network-gateway --room lab
+npx pico-emu wifi_demo.uf2 --gateway ws://localhost:5090/api/network-gateway --room lab
 ```
 
 ## Native CLI (no root, no TAP)

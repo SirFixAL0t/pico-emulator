@@ -7,21 +7,21 @@ littleOS, MicroPython, and 40+ bare-metal peripheral demos included.
 Credit: emulation core is a WASM port of
 [Night-Traders-Dev/Bramble](https://github.com/Night-Traders-Dev/Bramble)
 (MIT); WASM build, browser UI and packaging by
-[danish9661/picoemu](https://github.com/danish9661/picoemu).
+[danish9661/pico-emulator](https://github.com/danish9661/pico-emulator).
 
 ## Install
 
 ```sh
-npm i picoemu
+npm i pico-emu
 ```
 
-## CLI — `npx picoemu firmware.uf2`
+## CLI — `npx pico-emu firmware.uf2`
 
 ```sh
-npx picoemu hello_world.uf2                    # arch auto-detected from UF2
-npx picoemu ./web/uart_echo_rv32.uf2           # type a line, Enter submits
-npx picoemu fw.uf2 --arch rv32 --clock 125 --steps 2000000 --timeout 30 --cores 2
-npx picoemu wifi_fw.uf2 --gateway ws://localhost:5099/api/network-gateway --room lab
+npx pico-emu hello_world.uf2                    # arch auto-detected from UF2
+npx pico-emu ./web/uart_echo_rv32.uf2           # type a line, Enter submits
+npx pico-emu fw.uf2 --arch rv32 --clock 125 --steps 2000000 --timeout 30 --cores 2
+npx pico-emu wifi_fw.uf2 --gateway ws://localhost:5099/api/network-gateway --room lab
 ```
 
 Type into the terminal to send UART bytes (Ctrl-C quits); firmware output
@@ -31,7 +31,7 @@ streams to stdout. `--arch` accepts `auto` (default, UF2 family ID),
 ## JS API
 
 ```js
-import createEmu from 'picoemu';
+import createEmu from 'pico-emu';
 import fs from 'fs';
 
 const mod = await createEmu({ print: () => {}, printErr: () => {} });
@@ -54,7 +54,7 @@ mod._picoemu_write_uart(65);     // send 'A' to firmware
 More entry points: `_picoemu_load_elf`, `_picoemu_get_gpio` /
 `_picoemu_set_gpio`, `_picoemu_mem_read32` / `_picoemu_mem_write32`,
 `_picoemu_set_cores`, `_picoemu_is_halted`. Full reference with every
-export: [docs/PICOEMU.md](https://github.com/danish9661/picoemu/blob/main/docs/PICOEMU.md).
+export: [docs/PICOEMU.md](https://github.com/danish9661/pico-emulator/blob/main/docs/PICOEMU.md).
 
 ## Browser
 

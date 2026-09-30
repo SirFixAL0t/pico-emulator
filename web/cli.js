@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// picoemu — run RP2040/RP2350 (M0+/M33/RV32) UF2 firmware in Node.
-// Usage: picoemu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125]
+// pico-emu — run RP2040/RP2350 (M0+/M33/RV32) UF2 firmware in Node.
+// Usage: pico-emu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125]
 //        [--steps 2000000] [--timeout 30] [--cores 2] [--wifi]
 //        [--gateway ws://localhost:5090/api/network-gateway] [--room myroom]
 //        [--ble-hci ws://localhost:5090/api/ble-gateway]
@@ -22,7 +22,7 @@ const opt = (name, def) => {
 };
 const file = args.find((a) => !a.startsWith('--'));
 if (!file) {
-  console.error('Usage: picoemu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125] [--steps 2000000] [--timeout 30] [--cores 2] [--wifi] [--gateway URL] [--room ID] [--ble-hci URL] [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live|--board6300-live] [--net-w5500 URL]');
+  console.error('Usage: pico-emu <firmware.uf2> [--arch auto|m0|m33|rv32] [--clock 125] [--steps 2000000] [--timeout 30] [--cores 2] [--wifi] [--gateway URL] [--room ID] [--ble-hci URL] [--board pico-eth|pico-eth2|pico-w6300|pico-w6300-2] [--board-spi 0|1] [--board-live|--board6300-live] [--net-w5500 URL]');
   process.exit(2);
 }
 const u8 = new Uint8Array(fs.readFileSync(file));

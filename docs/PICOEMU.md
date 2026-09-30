@@ -9,9 +9,9 @@ demo UF2 images. Emulation core: MIT port of
 ## 1. Install & quick start
 
 ```sh
-npm i picoemu
-npx picoemu hello_world.uf2                 # arch auto-detected from UF2
-npx picoemu uart_echo_rv32.uf2              # type a line, Enter submits
+npm i pico-emu
+npx pico-emu hello_world.uf2                 # arch auto-detected from UF2
+npx pico-emu uart_echo_rv32.uf2              # type a line, Enter submits
 ```
 
 CLI options: `--arch auto|m0|m33|rv32` (default `auto` via UF2 family ID
@@ -30,7 +30,7 @@ polls `picoemu_get_gpio*`; `Send` writes the input box + CR(13).
 ## 3. Embedding in JS
 
 ```js
-import createEmu from 'picoemu';            // resolves picoemu.wasm.js
+import createEmu from 'pico-emu';            // resolves picoemu.wasm.js
 import fs from 'fs';
 
 const mod = await createEmu({ print: () => {}, printErr: () => {} });
@@ -173,7 +173,7 @@ Native: `cmake -S . -B build && cmake --build build -j && ctest
 --test-dir build` (474 tests). WASM: `./build_wasm.sh` (needs emsdk;
 output to `web/picoemu.wasm.*`). Publish flow: manual
 `.github/workflows/publish.yml` (branch + version + description →
-npmjs `picoemu` + GPR `@danish9661/picoemu`).
+npmjs `pico-emu` + GPR `@danish9661/pico-emu`).
 
 ## 7. Porting matrix (native → WASM)
 

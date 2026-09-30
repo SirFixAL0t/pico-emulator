@@ -1,5 +1,17 @@
 # Pico-emu RP2040/RP2350 Emulator - Changelog
 
+## [1.0.2] - 2026-09-30
+
+### Changed - npm package renamed `picoemu` → `pico-emu`, repo moved to `pico-emulator`
+
+The npm package is now [`pico-emu`](https://www.npmjs.com/package/pico-emu)
+(`npm i pico-emu`, `npx pico-emu …`); the old `picoemu` name stays published
+but deprecated — install it once to see the deprecation pointer, then switch.
+The repo moved to [`danish9661/pico-emulator`](https://github.com/danish9661/pico-emulator)
+(demo: `https://danish9661.github.io/pico-emulator/`); all badges, links, CLI
+usage lines and the publish workflow point at the new names. No emulation
+changes in this release (474/474, sweep 70/70 carry over from 1.0.1).
+
 ## [1.0.1] - 2026-09-30
 
 ### Added - W6300 socket-less + PACKET INFO completion (RA capture, SLRCR TOUT, RX headers)

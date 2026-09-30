@@ -613,7 +613,7 @@ on M0+. The original roadmap incorrectly listed these.
 
 ### 9.2 Browser UI [COMPLETE]
 
-- `web/index.html` drag-drop UF2/ELF, `Examples` `hello_world` `gpio_test` `timer_test` `interrupt_test` `name_prompt` `littleos` `spi/i2c/pwm/adc/dma/pio/usb` for RP2040 `0xE48BFF56` and RP2350 `0xE48BFF59` + `micropython` both chips `web/examples/`, serial monitor UART0, GPIO 0-29 `get_gpio_raw`, core PC/SP/halted/MIPS `2.5M` per `requestAnimationFrame`, `web/.nojekyll` `pages.yml` `https://danish9661.github.io/picoemu/`
+- `web/index.html` drag-drop UF2/ELF, `Examples` `hello_world` `gpio_test` `timer_test` `interrupt_test` `name_prompt` `littleos` `spi/i2c/pwm/adc/dma/pio/usb` for RP2040 `0xE48BFF56` and RP2350 `0xE48BFF59` + `micropython` both chips `web/examples/`, serial monitor UART0, GPIO 0-29 `get_gpio_raw`, core PC/SP/halted/MIPS `2.5M` per `requestAnimationFrame`, `web/.nojekyll` `pages.yml` `https://danish9661.github.io/pico-emulator`
 
 ### 9.3 Verification [COMPLETE]
 

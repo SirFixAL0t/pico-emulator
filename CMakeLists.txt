@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(Pico-emu
-    VERSION 1.0.1
+    VERSION 1.0.2
     DESCRIPTION "A lightweight RP2040/RP2350 emulator in C"
     LANGUAGES C
 )

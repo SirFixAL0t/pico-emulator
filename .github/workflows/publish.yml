@@ -8,9 +8,9 @@ on:
         required: true
         default: "main"
       version:
-        description: "Version (semver, e.g. 1.0.1)"
+        description: "Version (semver, e.g. 1.0.2)"
         required: true
-        default: "1.0.1"
+        default: "1.0.2"
       description:
         description: "Package description"
         required: true
@@ -48,14 +48,14 @@ jobs:
           node -e '
             const fs = require("fs");
             const pkg = {
-              name: "picoemu",
+              name: "pico-emu",
               version: process.env.PKG_VERSION,
               description: process.env.PKG_DESC,
               type: "module",
               main: "picoemu.wasm.js",
-              bin: { picoemu: "cli.js" },
+              bin: { "pico-emu": "cli.js", picoemu: "cli.js" },
               license: "MIT",
-              repository: { type: "git", url: "https://github.com/danish9661/picoemu.git" },
+              repository: { type: "git", url: "https://github.com/danish9661/pico-emulator.git" },
               files: ["picoemu.wasm.js", "picoemu.wasm.threads.js", "picoemu.wasm.wasm", "picoemu.wasm.threads.wasm", "picoemu_worker.js", "cli.js", "index.html", "*.uf2", "examples/*.uf2"],
             };
             fs.writeFileSync("web/package.json", JSON.stringify(pkg, null, 2) + "\n");
@@ -63,8 +63,10 @@ jobs:
           '
           test -f web/picoemu.wasm.js -a -f web/picoemu.wasm.wasm -a -f web/index.html
 
-      - name: Vendor MIT license into package (upstream attribution)
-        run: cp LICENSE web/LICENSE
+      - name: Vendor MIT license into package (upstream + port attribution)
+        run: |
+          cp LICENSE web/LICENSE
+          grep -q "danish9661" web/LICENSE
 
       - name: Smoke test (native build + WASM boot)
         run: |
@@ -77,7 +79,7 @@ jobs:
         working-directory: web
         run: npm pack --dry-run
 
-      - name: Publish to npmjs (picoemu)
+      - name: Publish to npmjs (pico-emu)
         working-directory: web
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
@@ -95,7 +97,7 @@ jobs:
           node -e '
             const fs = require("fs");
             const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            p.name = "@danish9661/picoemu";
+            p.name = "@danish9661/pico-emu";
             fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
           '
 
@@ -105,7 +107,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@danish9661"
 
-      - name: Publish to GitHub Packages (@danish9661/picoemu)
+      - name: Publish to GitHub Packages (@danish9661/pico-emu)
         working-directory: web
         run: |
           printf '@danish9661:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc
