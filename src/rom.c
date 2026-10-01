@@ -6,6 +6,7 @@
 #include "storage.h"
 #include "fuse_mount.h"
 #include "devtools.h"
+#include "bootrom_data.h"
 
 /* ROM image buffer */
 uint8_t rom_image[ROM_SIZE];
@@ -232,24 +233,21 @@ static void rom_build_data_table(void) {
 }
 
 /* Initialize ROM image */
+/*
 void rom_init(void) {
     memset(rom_image, 0, ROM_SIZE);
 
-    /* Magic at offset 0x10: 'M', 'u', version=1 */
     rom_image[0x10] = 'M';
     rom_image[0x11] = 'u';
     rom_image[0x12] = 0x01;
 
-    /* Pointers at 0x14/0x16/0x18 */
     rom_write16(ROM_FUNC_TABLE_PTR, 0x0100);
     rom_write16(ROM_DATA_TABLE_PTR, 0x0180);
     rom_write16(ROM_LOOKUP_FN_PTR,  0x0201);
 
-    /* Build tables */
     rom_build_func_table();
     rom_build_data_table();
 
-    /* Place Thumb code stubs */
     rom_place_lookup_fn();
     rom_place_memcpy();
     rom_place_memset();
@@ -262,6 +260,16 @@ void rom_init(void) {
 
     fprintf(stderr, "[ROM] Initialized function table with 14 entries + float/double tables\n");
 }
+*/
+
+void rom_init(void) {
+    memset(rom_image, 0, ROM_SIZE);
+
+    memcpy(rom_image, bootrom_bin, bootrom_bin_len);
+
+    fprintf(stderr, "[ROM] Loaded physical RP2040 Boot ROM (%d bytes)\n", bootrom_bin_len);
+}
+
 
 /* ========================================================================
  * ROM Function Interception

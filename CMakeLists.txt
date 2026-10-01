@@ -66,6 +66,7 @@ set(EMU_SOURCES
     src/sdd_jsmirror.c
     src/i2c_bitbang.c
     src/sdd_spimirror.c
+    src/sdd_mpu6050.c
     src/rp2350_rv/rv_cpu.c
     src/rp2350_rv/rv_clint.c
     src/rp2350_rv/rv_membus.c

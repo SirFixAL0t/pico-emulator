@@ -143,6 +143,7 @@ int sdd_create_from_arg(const char *arg) {
         return sdd_create_eeprom(i2c_bus, i2c_addr, file);
     }
 
+<<<<<<< HEAD
     /* JS-mirror slave(s). One sdd_add call attaches
      * all of them (the registry resets per call), sharing one ring:
      *   jsmirror:i2c=0,addr=0x3c
@@ -195,7 +196,18 @@ int sdd_create_from_arg(const char *arg) {
         return sdd_create_spimirror(spi_bus);
     }
 
+
+    if (strcmp(type, "mpu6050") == 0) {
+        int bus = 0;   /* Usually 0 */
+        int addr = 0x68;         /* Default MPU-6050 address */
+	const char *extra_args = NULL;
+        /* Parse any optional i2c= / addr= overrides */
+        return sdd_create_mpu6050(bus, addr, extra_args);
+    }
+
+
+
     fprintf(stderr, "[SDD] Unknown device type: '%s'\n", type);
-    fprintf(stderr, "[SDD] Available types: thermometer, eeprom, jsmirror, spimirror\n");
+    fprintf(stderr, "[SDD] Available types: thermometer, eeprom, mpu6050, jsmirror, spimirror\n");
     return -1;
 }

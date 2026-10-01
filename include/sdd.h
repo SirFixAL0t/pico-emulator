@@ -133,4 +133,7 @@ int  picoemu_spimirror_pop(uint16_t *out, int max);
 int  picoemu_spimirror_inject(const uint8_t *data, int len);
 void spimirror_reset(void);
 
+/* Create an MPU6050 sensor */
+int sdd_create_mpu6050(int i2c_bus, int i2c_addr, const char *args);
+
 #endif /* SDD_H */
