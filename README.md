@@ -111,7 +111,7 @@ See `docs/WASM.md` for full guide. Quick start:
 ./emsdk/emsdk_env.sh
 ./build_wasm.sh          # emcc -O3 -msimd128 web/picoemu.wasm.{js,wasm} 156K
 python3 -m http.server 8080 --directory web  # http://localhost:8080
-# Preset firmware: hello_world, gpio_test, timer_test, interrupt_test, name_prompt, littleos (M0), littleos_pico2 (M33), littleos_pico2_riscv (RV32) in web/ and web/examples/
+# Preset firmware: hello_world, gpio_test, timer_test, interrupt_test, name_prompt, littleos (M0), littleos_pico2 (M33), littleos_pico2_riscv (RV32) in web/
 ```
 
 Browser UI `web/index.html` provides drag-drop UF2/ELF, serial monitor, GPIO 0-29 viewer, core PC/SP/halted/MIPS, clock select, and `PicoemuModule({print,printErr:console.log})` to avoid red console.
@@ -128,7 +128,7 @@ Pico-emu builds with dual-core support enabled by default. Select the active cor
 
 ### Build Test Firmware
 
-In-tree guests are prebuilt (`web/*.uf2`, mirrored in `web/examples/`). To rebuild from source:
+In-tree guests are prebuilt (`web/*.uf2`). To rebuild from source:
 
 ```bash
 cd test-firmware
@@ -144,12 +144,12 @@ Peripheral demos: `gpio` (LED 25), `timer` (alarm IRQs), `uart_echo`/`name_promp
 **UF2 Firmware:**
 
 ```bash
-./picoemu hello_world.uf2
-./picoemu gpio_test.uf2
-./picoemu timer_test.uf2
-./picoemu interrupt_test.uf2
-./picoemu name_prompt.uf2 -stdin
-printf 'Ada\n' | ./picoemu name_prompt.uf2 -stdin
+./picoemu web/hello_world.uf2
+./picoemu web/gpio_test.uf2
+./picoemu web/timer_test.uf2
+./picoemu web/interrupt_test.uf2
+./picoemu web/name_prompt.uf2 -stdin
+printf 'Ada\n' | ./picoemu web/name_prompt.uf2 -stdin
 ```
 
 **ELF Firmware** (auto-detected by extension):
@@ -170,22 +170,22 @@ Pico-emu now supports flexible debug output modes:
 
 **Single-Core CPU Step Tracing** (verbose CPU and peripheral logging):
 ```bash
-./picoemu -debug timer_test.uf2
+./picoemu -debug web/timer_test.uf2
 ```
 
 **Assembly Instruction Tracing** (detailed POP/BX/branch operations):
 ```bash
-./picoemu -asm timer_test.uf2
+./picoemu -asm web/timer_test.uf2
 ```
 
 **Combined Debug + Assembly Tracing:**
 ```bash
-./picoemu -debug -asm timer_test.uf2
+./picoemu -debug -asm web/timer_test.uf2
 ```
 
 **No Debug Output:**
 ```bash
-./picoemu hello_world.uf2
+./picoemu web/hello_world.uf2
 ```
 
 **Dual-Core Specific:**

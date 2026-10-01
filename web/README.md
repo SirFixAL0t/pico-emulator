@@ -64,9 +64,12 @@ dropdowns: RP2040 / M33 / RV32). Serve the package dir and open it, or copy
 
 ## Firmware in this package
 
-Top level: one UF2 per demo (`*_test.uf2` RP2040, `*_pico2.uf2` M33,
-`*_rv32.uf2` RV32) plus `littleos*.uf2` and `micropython*.uf2`.
-`examples/` mirrors the same set for the UI dropdowns.
+`firmware/` ships a curated demo set (browser UI dropdowns load from here):
+`hello_world`, `gpio_test`, `eth_dhcp` + `eth_http` (W5500, pico-eth),
+`eth_dhcp6300` + `eth_http6300` + `ethdhcp6300_arduino` (W6300, pico-w6300),
+`micropython_rp2040` + `micropython_rp2350`, `ble_adv`, `wifi_scan`,
+`littleos`. Full per-arch build output (90 UF2s incl. `_pico2`/`_rv32`
+variants) lives in the GitHub repo under `web/` — run the sweep there.
 
 Networking extras: `eth_dhcp{,_pico2,_rv32}.uf2` + `eth_http{,_pico2,_rv32}.uf2`
 (W5500 DHCP + HTTP client, pico-eth on SPI0 — pick the board in the UI,
@@ -92,4 +95,4 @@ options; live host sockets for IPv4 + IPv6 (loopback-verified).
 
 ## License
 
-MIT — see LICENSE (upstream © 2025 Night-Traders-Dev).
+MIT — see LICENSE (© 2026 danish9661; upstream © 2025 Night-Traders-Dev).
