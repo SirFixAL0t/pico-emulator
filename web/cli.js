@@ -107,6 +107,11 @@ let gw = null;
   const room = opt('--room', '');
   if (url) {
     if (room) url += (url.includes('?') ? '&' : '?') + 'sessionId=' + encodeURIComponent(room);
+    // Enable the WS uplink mirror IMMEDIATELY (before first step): the
+    // guest sends its RS within the first chunk, long before the WS
+    // onopen fires. Frames are queued in-WASM and drained once the
+    // socket opens, so nothing is lost. onopen re-asserts (idempotent).
+    try { mod._picoemu_eth_set_uplink(1); } catch {}
     gw = new WebSocket(url);
     gw.binaryType = 'arraybuffer';
     gw.onopen = () => { try { mod._picoemu_eth_set_uplink(1); } catch {} };
