@@ -143,7 +143,6 @@ int sdd_create_from_arg(const char *arg) {
         return sdd_create_eeprom(i2c_bus, i2c_addr, file);
     }
 
-<<<<<<< HEAD
     /* JS-mirror slave(s). One sdd_add call attaches
      * all of them (the registry resets per call), sharing one ring:
      *   jsmirror:i2c=0,addr=0x3c
