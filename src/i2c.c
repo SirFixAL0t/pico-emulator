@@ -216,7 +216,13 @@ void i2c_write32(int i2c_num, uint32_t offset, uint32_t val) {
             c->tx_abrt_source |= I2C_TX_ABRT_7B_ADDR_NOACK;
             c->raw_intr_stat |= I2C_INT_TX_ABRT | I2C_INT_STOP_DET;
             c->rx_head = c->rx_tail = c->rx_count = 0;
-            break;
+            /* FIX: If this write command was a READ request (I2C_DATA_CMD_READ),
+             * open-drain SDA floats high (0xFF). Push 0xFF into RX FIFO so
+             * blocking read loops in Arduino/Pico SDK don't hang waiting for bytes. */
+            if (val & I2C_DATA_CMD_READ) {
+                rx_push(c, 0xFF);
+            }
+	    break;
         }
 
         if (val & I2C_DATA_CMD_RESTART) {
