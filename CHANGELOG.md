@@ -1,6 +1,6 @@
 # Pico-emu RP2040/RP2350 Emulator - Changelog
 
-## [1.0.3] - 2026-10-06
+## [1.0.4] - 2026-10-06
 
 ### Added - simulator hook contract (I2C scan-ACK, sleep/wakeup, SPI/ADC/PWM taps) + M33 SMULBB HardFault fix
 

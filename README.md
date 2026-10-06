@@ -21,7 +21,7 @@ npx pico-emu hello_world.uf2         # CLI: arch auto-detected from UF2
 Browser UI (`web/index.html`) has RP2040 / M33 / RV32 demo dropdowns, serial
 monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs/PICOEMU.md).
 
-## Current Status: v1.0.3
+## Current Status: v1.0.4
 
   495/495 tests passing, sweep 70/70. **RP2040 (M0+)**: littleOS shell, TinyUSB CDC `hello_usb`, MicroPython v1.22.1 REPL (USB CDC), all peripheral self-tests. **RP2350 ARM (M33, `-arch m33`)**: littleOS shell with Sage eval (`print(6*7)` = `42`), VFP single + deferred-compute double, TrustZone SAU/MPU, DSP scalar + MVE-Helium integer vectors. **RP2350 RISC-V (RV32, `-arch rv32`)**: Hazard3 RV32IMAC + Zba/Zbb/Zbs/Zcb/Zcmp + Zfinx single-float, CLINT, dual-hart; littleOS shell. Firmware auto-detects via UF2 family ID / picobin IMAGE_DEF. **Networking**: vnet bus (TAP bridge, peer mesh), W5500/W6300 live sockets (`-net-live`, `-net-live6300`, `web/net_proxy.py`), MACRAW socket-0 single-gateway path shared by WiFi + both Ethernet chips. **Wired Ethernet**: `pico-eth`/`pico-eth2` (W5500, SPI0 CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` (W6300 dual IPv4/IPv6 offload, SPI0 QSPI-single CS16/RST22/INT15); in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` guests (DORA + HTTP on all three cores) + Arduino `Wiznet5500lwIP` / `W6300lwIP` DORA prove-outs (see CHANGELOG). **Bluetooth**: HCI responder + GATT loopback (`GATT-DONE`, sweep-locked), HCI-forward to Bumble/RootCanal/physical (`web/hci_bridge.py`), ARM `ble_adv` guests reach `ARM BLE LISTEN`.
 
