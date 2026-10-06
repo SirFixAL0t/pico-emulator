@@ -94,6 +94,10 @@ int rv_clint_match(uint32_t addr);
 void rv_clint_set_ext_pending(rv_clint_state_t *clint, uint32_t irq_num);
 void rv_clint_clear_ext_pending(rv_clint_state_t *clint, uint32_t irq_num);
 
+/* TIMER alarm bridge: raise the hardwired external bit for TIMER0 (0)
+ * or TIMER1 (1). RV step loops call this on fresh alarm edges. */
+void rv_clint_timer_fired(rv_clint_state_t *clint, int timer_no);
+
 /* Check and deliver pending interrupts to a hart.
  * Returns 1 if an interrupt was delivered, 0 otherwise. */
 int rv_clint_check_interrupts(rv_clint_state_t *clint, rv_cpu_state_t *hart);

@@ -631,6 +631,20 @@ static int is_clocks_addr(uint32_t addr) {
     return 0;
 }
 
+/* RP2350 moved I2C0/I2C1 to 0x40090000/0x40098000 (same Synopsys DW core
+ * layout underneath). Without this remap, M33 firmware I2C hits unmapped
+ * space and every address NACKs (observed live: endTransmission(0x3C) == 2
+ * on Pico 2, green on Pico 1). Mirrors the RV membus remap
+ * (rp2350_rv/rv_membus.c) and the ADC precedent below. */
+static uint32_t i2c_remap_rp2350(uint32_t addr) {
+    if (!membus_rp2350_mode) return addr;
+    uint32_t base = addr & ~0x3FFFu;
+    uint32_t tail = addr & 0x3FFFu;
+    if (base == 0x40090000u) return 0x40044000u | tail; /* I2C0 */
+    if (base == 0x40098000u) return 0x40048000u | tail; /* I2C1 */
+    return addr;
+}
+
 static int is_adc_addr(uint32_t addr) {
     if ((addr & ~0x3FFF) == ADC_BASE) return 1;
     /* RP2350 moved ADC to 0x400A0000 (same layout); without this,
@@ -1276,6 +1290,7 @@ void mem_write32(uint32_t addr, uint32_t val) {
 
     /* I2C peripherals */
     {
+        addr = i2c_remap_rp2350(addr);
         int i2c_num = i2c_match(addr);
         if (i2c_num >= 0) {
             uint32_t alias = addr & 0x3000;
@@ -1894,6 +1909,7 @@ uint32_t mem_read32(uint32_t addr) {
 
     /* I2C peripherals */
     {
+        addr = i2c_remap_rp2350(addr);
         int i2c_num = i2c_match(addr);
         if (i2c_num >= 0) {
             return i2c_read32(i2c_num, addr & 0xFFF);

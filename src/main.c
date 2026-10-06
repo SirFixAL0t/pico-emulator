@@ -1393,8 +1393,16 @@ skip_fuse:
             usb_step();
             if (rv_bus.clint.cycle_accum == 0) {
                 /* A microsecond elapsed — tick the SDK-visible TIMER0 alias and TIMER1. */
+                uint32_t t0 = timer_state.intr;
+                uint32_t t1 = rv_bus.periph.timer1.intr;
                 timer_tick(1);
                 rp2350_timer1_tick(&rv_bus.periph, 1);
+                /* TIMER alarms have no CLINT line: bridge fresh edges so
+                 * SDK alarm-pool sleep (TIMER + WFI) can wake the hart. */
+                if ((timer_state.intr & ~t0) != 0)
+                    rv_clint_timer_fired(&rv_bus.clint, 0);
+                if ((rv_bus.periph.timer1.intr & ~t1) != 0)
+                    rv_clint_timer_fired(&rv_bus.clint, 1);
             }
 
             /* Check and deliver interrupts to both harts */

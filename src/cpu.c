@@ -974,6 +974,12 @@ static inline int it_check_skip(uint32_t pc) {
 
 /* Per-core exception nesting: use active core's exception_stack/exception_depth */
 
+/* Callee-saved snapshot across exceptions (see cpu_exception_entry).
+ * Indexed by core and nesting slot; written on entry, verified on
+ * return-to-thread. */
+static uint32_t exc_callee_saved[2][MAX_EXCEPTION_DEPTH][8];
+static uint32_t exc_callee_vec[2][MAX_EXCEPTION_DEPTH];
+
 void cpu_exception_entry(uint32_t vector_num) {
     int ac = get_active_core();
     uint32_t *exception_stack = cores[ac].exception_stack;
@@ -991,9 +997,18 @@ void cpu_exception_entry(uint32_t vector_num) {
      * fault occurs, the real Cortex-M0+ enters lockup (core halts). */
     if (vector_num == EXC_HARDFAULT && cpu.current_irq != EXC_HARDFAULT) {
         /* Abnormal event worth one line even outside -debug: helps catch
-         * guest crashes (e.g. M33 WiFi-path faults) without full tracing. */
-        fprintf(stderr, "[CPU] HardFault: PC=0x%08X LR=0x%08X SP=0x%08X VTOR=0x%08X\n",
-                cpu.r[15], cpu.r[14], cpu.r[13], cpu.vtor);
+         * guest crashes (e.g. M33 WiFi-path faults) without full tracing.
+         * Extra fields disambiguate corrupt-vector (handler word bogus)
+         * from phantom-branch (handler sane, opcode halves innocent):
+         * H=vector-table HardFault word, W0/W1=faulting halfwords,
+         * IT=base/mask/pos when inside an IT block. */
+        uint32_t hf_handler = mem_read32(cpu.vtor + EXC_HARDFAULT * 4);
+        uint32_t w0 = mem_read16(cpu.r[15]);
+        uint32_t w1 = mem_read16(cpu.r[15] + 2);
+        fprintf(stderr, "[CPU] HardFault: PC=0x%08X LR=0x%08X SP=0x%08X VTOR=0x%08X H=0x%08X W=0x%04X,0x%04X IT=%u/%u/%u\n",
+                cpu.r[15], cpu.r[14], cpu.r[13], cpu.vtor, hf_handler,
+                w0 & 0xFFFFu, w1 & 0xFFFFu,
+                cores[ac].it_base, cores[ac].it_mask, cores[ac].it_pos);
     }
     if (vector_num == EXC_HARDFAULT && cpu.current_irq == EXC_HARDFAULT) {
         if (cpu.debug_enabled) {
@@ -1123,6 +1138,22 @@ void cpu_exception_entry(uint32_t vector_num) {
     if (__builtin_expect(irq_latency_enabled, 0) && vector_num >= 16) {
         irq_latency_enter(vector_num - 16);
     }
+
+    /* Callee-saved integrity snapshot: handlers (compiled code) must
+     * preserve r4-r11 across the exception by ABI. Snapshot here;
+     * cpu_exception_return compares on real return-to-thread. Any
+     * mismatch is an emulator stacking/unstacking or LDM/STM bug, and
+     * previously surfaced as a delayed wild branch (M33 I2C HardFault:
+     * r6 clobbered across TIMER preemption, faulting much later at
+     * `blx r6`). Check is 8 compares per return — negligible. */
+    {
+        int slot = *p_exception_depth - 1;
+        if (slot >= 0 && slot < MAX_EXCEPTION_DEPTH) {
+            for (int i = 0; i < 8; i++)
+                exc_callee_saved[ac][slot][i] = cpu.r[4 + i];
+            exc_callee_vec[ac][slot] = vector_num;
+        }
+    }
 }
 
 void cpu_exception_return(uint32_t lr_value) {
@@ -1206,6 +1237,24 @@ void cpu_exception_return(uint32_t lr_value) {
 
         /* Normal exception return: unstack the frame */
         uint32_t sp = cpu.r[13];
+
+        /* Callee-saved integrity: r4-r11 must be bit-identical to entry
+         * (see cpu_exception_entry snapshot). Report, don't stop — the
+         * guest fault that follows is the real symptom. */
+        {
+            int slot = *p_exception_depth - 1;
+            if (slot >= 0 && slot < MAX_EXCEPTION_DEPTH) {
+                for (int i = 0; i < 8; i++) {
+                    if (cpu.r[4 + i] != exc_callee_saved[ac][slot][i]) {
+                        fprintf(stderr,
+                                "[CPU] CALLEE-CLOBBER vec=%u PC=0x%08X: r%d entry=0x%08X return=0x%08X\n",
+                                exc_callee_vec[ac][slot], cpu.r[15], 4 + i,
+                                exc_callee_saved[ac][slot][i], cpu.r[4 + i]);
+                        break;
+                    }
+                }
+            }
+        }
 
         if (cpu.debug_enabled) {
             printf("[CPU] Popping frame from SP=0x%08X\n", sp);
@@ -1508,6 +1557,7 @@ pc_valid:
                        instr, instr2, pc);
             cpu_exception_entry(EXC_HARDFAULT);
         }
+        if (__builtin_expect(trace_enabled, 0))     trace_record(pc, instr, 0);
         timing_tick(timing_instruction_cycles_32(instr, instr2));
         return;
     }
@@ -2055,6 +2105,14 @@ void cpu_reset_core(int core_id) {
     c->xpsr = 0x01000000;
     c->step_count = 0;
     c->is_halted = (core_id == CORE1) ? 1 : 0;
+    /* Lockstep rule (pico-emu.md): reset clears ALL sticky state
+     * synchronously — a WFI/masked/in-handler flag surviving reset
+     * desyncs one board's lane forever. (is_wfi was missed here
+     * before: a reset during sleep never woke.) */
+    c->is_wfi = 0;
+    c->faultmask = 0;
+    c->in_handler_mode = 0;
+    c->current_irq = 0xFFFFFFFF;
     c->vtor = 0x10000100;
     c->primask = 0;
     c->it_base = 0;

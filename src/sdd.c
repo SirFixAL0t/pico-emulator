@@ -18,6 +18,8 @@ sdd_registry_t sdd_registry;
 
 void sdd_init(void) {
     memset(&sdd_registry, 0, sizeof(sdd_registry));
+    jsmirror_reset();
+    spimirror_reset();
 }
 
 void sdd_cleanup(void) {
@@ -141,7 +143,59 @@ int sdd_create_from_arg(const char *arg) {
         return sdd_create_eeprom(i2c_bus, i2c_addr, file);
     }
 
+    /* JS-mirror slave(s). One sdd_add call attaches
+     * all of them (the registry resets per call), sharing one ring:
+     *   jsmirror:i2c=0,addr=0x3c
+     *   jsmirror:i2c=0,addr=0x3c,addr=0x27
+     */
+    if (strcmp(type, "jsmirror") == 0) {
+        int i2c_bus = 0;
+        int addrs[8];
+        int naddrs = 0;
+
+        if (opts) {
+            char *saveptr = NULL;
+            char *token = strtok_r(opts, ",", &saveptr);
+            while (token) {
+                if (strncmp(token, "i2c=", 4) == 0) {
+                    i2c_bus = atoi(token + 4);
+                } else if (strncmp(token, "addr", 4) == 0) {
+                    const char *eq = strchr(token, '=');
+                    if (eq && naddrs < 8) {
+                        addrs[naddrs++] = (int)strtol(eq + 1, NULL, 0) & 0x7F;
+                    }
+                }
+                token = strtok_r(NULL, ",", &saveptr);
+            }
+        }
+
+        if (naddrs == 0) {
+            fprintf(stderr, "[SDD] jsmirror needs addr=0x.. (e.g. jsmirror:i2c=0,addr=0x3c)\n");
+            return -1;
+        }
+        return sdd_create_jsmirror(i2c_bus, addrs, naddrs);
+    }
+
+    /* SPI-mirror slave (MOSI observe + MISO inject, replaces any
+     * sdcard/emmc on the bus): spimirror:spi=0 */
+    if (strcmp(type, "spimirror") == 0) {
+        int spi_bus = 0;
+
+        if (opts) {
+            char *saveptr = NULL;
+            char *token = strtok_r(opts, ",", &saveptr);
+            while (token) {
+                if (strncmp(token, "spi=", 4) == 0) {
+                    spi_bus = atoi(token + 4);
+                }
+                token = strtok_r(NULL, ",", &saveptr);
+            }
+        }
+
+        return sdd_create_spimirror(spi_bus);
+    }
+
     fprintf(stderr, "[SDD] Unknown device type: '%s'\n", type);
-    fprintf(stderr, "[SDD] Available types: thermometer, eeprom\n");
+    fprintf(stderr, "[SDD] Available types: thermometer, eeprom, jsmirror, spimirror\n");
     return -1;
 }

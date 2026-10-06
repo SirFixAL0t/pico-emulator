@@ -605,12 +605,53 @@ static int t32_misc(uint32_t pc, uint16_t upper, uint16_t lower) {
         if (Rd != 15) cpu.r[Rd] = acc + (uint32_t)(m ? (p1 + p2) : (p1 - p2));
         return 1;
     }
+    /* SMULBB/BT/TB/TT (signed 16x16 -> 32, ARMv7-M DSP): upper =
+     * 1111 1011 0001 Rn (FB1x), lower = 1111 Rd 00NM Rm (N: Rn half,
+     * M: Rm half; 0=bottom, 1=top). Verified: smulbb FB11 F000 (gcc),
+     * fault bytes FB16 F603. Previously fell through to ldst_single,
+     * which misread it as LDRB Rt=15: PC = a data byte (the M33 I2C
+     * HardFault: 0x3E380000 via ROM detour + stale-LR landing).
+     * Rd==15 is UNPREDICTABLE: decline (loud HardFault), never a
+     * wild PC write. */
+    if ((upper & 0xFFF0) == 0xFB10 && (lower & 0xF0C0) == 0xF000) {
+        int Rd = (lower >> 8) & 0xF;
+        int Rn = upper & 0xF;
+        int Rm = lower & 0xF;
+        if (Rd == 15) return 0;
+        int N = (lower >> 5) & 1, M = (lower >> 4) & 1;
+        int32_t hn = N ? (int32_t)(int16_t)(cpu.r[Rn] >> 16)
+                       : (int32_t)(int16_t)(cpu.r[Rn] & 0xFFFFu);
+        int32_t hm = M ? (int32_t)(int16_t)(cpu.r[Rm] >> 16)
+                       : (int32_t)(int16_t)(cpu.r[Rm] & 0xFFFFu);
+        cpu.r[Rd] = (uint32_t)(hn * hm);
+        return 1;
+    }
+    /* SMLABB/BT/TB/TT (SMUL + accumulate): upper = FB1x, lower =
+     * Ra Rd 00NM Rm (Ra != 15; Ra==15 is the SMUL shape above).
+     * Verified: smlabb FB11 2000, smlatt FB11 2030 + FB10 3431 (gcc).
+     * Q flag on signed accumulate overflow (ARM rule). */
+    if ((upper & 0xFFF0) == 0xFB10 && (lower & 0x00C0) == 0x0000 &&
+        ((lower >> 12) & 0xF) != 15) {
+        int Ra = (lower >> 12) & 0xF;
+        int Rd = (lower >> 8) & 0xF;
+        int Rn = upper & 0xF;
+        int Rm = lower & 0xF;
+        if (Rd == 15 || Ra == 15) return 0;
+        int N = (lower >> 5) & 1, M = (lower >> 4) & 1;
+        int32_t hn = N ? (int32_t)(int16_t)(cpu.r[Rn] >> 16)
+                       : (int32_t)(int16_t)(cpu.r[Rn] & 0xFFFFu);
+        int32_t hm = M ? (int32_t)(int16_t)(cpu.r[Rm] >> 16)
+                       : (int32_t)(int16_t)(cpu.r[Rm] & 0xFFFFu);
+        int64_t sum = (int64_t)(int32_t)cpu.r[Ra] + (int64_t)hn * hm;
+        if (sum != (int64_t)(int32_t)sum) cpu.xpsr |= (1u << 27);
+        cpu.r[Rd] = (uint32_t)(int32_t)sum;
+        return 1;
+    }
     /* SMLALD/SMLSLD (dual MLA long, ARMv7-M DSP): upper = 1111 1011 110M Rn
      * (M: 0=ALD FBCx, 1=SLD FBDx), lower = RdLo RdHi 1100 Rm.
      * Verified: smlald FBC2 01C3, smlsld FBD2 01C3. */
     if (((upper & 0xFFF0) == 0xFBC0 || (upper & 0xFFF0) == 0xFBD0) &&
-        (lower & 0x00F0) == 0x00C0) {
-        int sub = (upper >> 4) & 1; /* 0=ALD, 1=SLD */
+        (lower & 0x00F0) == 0x00C0) {        int sub = (upper >> 4) & 1; /* 0=ALD, 1=SLD */
         int Rn = upper & 0xF;
         int RdLo = (lower >> 12) & 0xF;
         int RdHi = (lower >> 8) & 0xF;
@@ -1048,9 +1089,22 @@ static int t32_misc(uint32_t pc, uint16_t upper, uint16_t lower) {
         return 1;
     }
     /* BLX register is 16-bit (handled elsewhere) */
-    /* NOP/IT/YIELD etc. 32-bit hints: upper = 0xF3AF, lower = 0x8000..80xx */
+    /* NOP/IT/YIELD etc. 32-bit hints: upper = 0xF3AF, lower = 0x8000..80xx.
+     * Decode the real WFI/WFE/SEV ( speculate: some toolchains emit the
+     * 32-bit HINT form); anything else stays a NOP. Matches the 16-bit
+     * instr_wfi/wfe/sev semantics in instructions.c. */
     if ((upper & 0xFFFF) == 0xF3AF && (lower & 0xFF00) == 0x8000) {
-        return 1;  /* NOP, YIELD, WFE, WFI, SEV hints */
+        uint8_t hint = lower & 0xFFu;
+        if (hint == 0x30) {          /* WFI */
+            int c = get_active_core();
+            if (c < NUM_CORES) cores[c].is_wfi = 1;
+        } else if (hint == 0x20) {   /* WFE (no event latch: sleep) */
+            int c = get_active_core();
+            if (c < NUM_CORES) cores[c].is_wfi = 1;
+        } else if (hint == 0x40) {   /* SEV: wake all cores */
+            for (int i = 0; i < NUM_CORES; i++) cores[i].is_wfi = 0;
+        }
+        return 1;
     }
 
     (void)pc;
@@ -2488,6 +2542,13 @@ int thumb32_step(uint32_t pc, uint16_t upper, uint16_t lower) {
         if (t32_vsel(pc, upper, lower)) return 1;
         /* Check misc 32-bit first (SDIV, UDIV, MUL, CLZ etc.) */
         if (t32_misc(pc, upper, lower)) return 1;
+        /* DSP/multiply space (FAxx/FBxx) with no decode is UNPREDICTABLE,
+         * and no 32-bit load/store form uses these uppers (loads are
+         * F8/F9): refuse the ldst_single misdecode below, which can
+         * alias Rt=15 into a wild PC load (SMULBB-as-LDRB sent M33
+         * display() to 0x10, then via stale LR into the I2C loop for a
+         * delayed 0x3E380000 HardFault). Loud fault instead. */
+        if ((upper & 0xFE00) == 0xFA00) return 0;
         /* Load/Store single */
         t32_ldst_single(pc, upper, lower);
         return 1;

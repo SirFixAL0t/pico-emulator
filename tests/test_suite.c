@@ -1792,6 +1792,396 @@ TEST(test_i2c_comp_type) {
     PASS();
 }
 
+TEST(test_i2c_tx_abrt_addr_noack) {
+    /* No device attached: address byte must NACK (TX_ABRT + bit0),
+     * with auto-STOP so SDK wait loops terminate; CLR_TX_ABRT clears. */
+    reset_cpu();
+    mem_write32(I2C0_BASE + I2C_TAR, 0x40);
+    mem_write32(I2C0_BASE + I2C_DATA_CMD, I2C_DATA_CMD_STOP);
+    ASSERT_EQ(I2C_TX_ABRT_7B_ADDR_NOACK,
+              mem_read32(I2C0_BASE + I2C_TX_ABRT_SOURCE),
+              "unattached write sets ADDR_NOACK");
+    ASSERT_TRUE(mem_read32(I2C0_BASE + I2C_RAW_INTR_STAT) & I2C_INT_TX_ABRT,
+                "TX_ABRT raw bit set");
+    ASSERT_TRUE(mem_read32(I2C0_BASE + I2C_RAW_INTR_STAT) & I2C_INT_STOP_DET,
+                "auto-STOP on abort");
+    mem_read32(I2C0_BASE + I2C_CLR_TX_ABRT);
+    ASSERT_EQ(0, mem_read32(I2C0_BASE + I2C_TX_ABRT_SOURCE),
+              "CLR_TX_ABRT clears source");
+    ASSERT_TRUE(!(mem_read32(I2C0_BASE + I2C_RAW_INTR_STAT) & I2C_INT_TX_ABRT),
+                "CLR_TX_ABRT clears flag");
+    PASS();
+}
+
+TEST(test_i2c_no_abrt_when_attached) {
+    reset_cpu();
+    sdd_init();
+    sdd_create_thermometer(25.0f, 0, 0x48);
+    mem_write32(I2C0_BASE + I2C_TAR, 0x48);
+    mem_write32(I2C0_BASE + I2C_DATA_CMD, I2C_DATA_CMD_STOP);
+    ASSERT_EQ(0, mem_read32(I2C0_BASE + I2C_TX_ABRT_SOURCE),
+              "attached write must not abort");
+    mem_write32(I2C0_BASE + I2C_DATA_CMD, I2C_DATA_CMD_READ | I2C_DATA_CMD_STOP);
+    ASSERT_EQ(0, mem_read32(I2C0_BASE + I2C_TX_ABRT_SOURCE),
+              "attached read must not abort");
+    ASSERT_TRUE(mem_read32(I2C0_BASE + I2C_RXFLR) == 1, "read pushes RX byte");
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_i2c_read_noack_when_empty) {
+    /* Silicon reads from an empty address abort (no RX data). */
+    reset_cpu();
+    mem_write32(I2C0_BASE + I2C_TAR, 0x41);
+    mem_write32(I2C0_BASE + I2C_DATA_CMD, I2C_DATA_CMD_READ | I2C_DATA_CMD_STOP);
+    ASSERT_EQ(I2C_TX_ABRT_7B_ADDR_NOACK,
+              mem_read32(I2C0_BASE + I2C_TX_ABRT_SOURCE),
+              "unattached read sets ADDR_NOACK");
+    ASSERT_EQ(0, mem_read32(I2C0_BASE + I2C_RXFLR), "aborted read pushes nothing");
+    PASS();
+}
+
+/* Soft-I2C helpers: drive SDA/SCL as open-drain GPIO (OUT=0;
+ * OE=1 drives low, OE=0 releases to pull-up), like MicroPython's
+ * machine.I2C zero-length-write fallback. */
+#define BB_SIO_OUT_SET  (SIO_BASE_GPIO + 0x014)
+#define BB_SIO_OUT_CLR  (SIO_BASE_GPIO + 0x018)
+#define BB_SIO_OE_SET   (SIO_BASE_GPIO + 0x024)
+#define BB_SIO_OE_CLR   (SIO_BASE_GPIO + 0x028)
+#define BB_SIO_IN       (SIO_BASE_GPIO + 0x004)
+
+static void bb_setup(int scl, int sda) {
+    mem_write32(SIO_BASE_GPIO + 0x020, 0);          /* OE: all released */
+    mem_write32(SIO_BASE_GPIO + 0x010, 0);          /* OUT low */
+    (void)scl; (void)sda;
+}
+
+/* Full write-probe transaction; returns 1 on slave ACK, 0 on NACK. */
+static int bb_probe(int scl, int sda, uint8_t addr) {
+    uint32_t sm = 1u << (uint32_t)sda, cm = 1u << (uint32_t)scl;
+    uint8_t byte = (uint8_t)((addr << 1) & 0xFEu);
+    mem_write32(BB_SIO_OE_SET, sm);                 /* START */
+    mem_write32(BB_SIO_OE_SET, cm);                 /* SCL low before setup */
+    for (int i = 7; i >= 0; i--) {
+        if ((byte >> i) & 1) mem_write32(BB_SIO_OE_CLR, sm);
+        else mem_write32(BB_SIO_OE_SET, sm);
+        mem_write32(BB_SIO_OE_CLR, cm);
+        mem_write32(BB_SIO_OE_SET, cm);
+    }
+    mem_write32(BB_SIO_OE_CLR, sm);                 /* release for ACK */
+    mem_write32(BB_SIO_OE_CLR, cm);
+    int ack = ((mem_read32(BB_SIO_IN) >> (uint32_t)sda) & 1u) == 0;
+    mem_write32(BB_SIO_OE_SET, cm);
+    mem_write32(BB_SIO_OE_SET, sm);
+    mem_write32(BB_SIO_OE_CLR, cm);                 /* ...SCL high... */
+    mem_write32(BB_SIO_OE_CLR, sm);                 /* ...SDA release: STOP */
+    return ack;
+}
+
+TEST(test_bb_release_restores_pullup) {
+    /* Open-drain release must read HIGH (silicon pull-up); the stale
+     * IN latch used to wedge the line low after the first drive. */
+    reset_cpu();
+    sdd_init();
+    sdd_create_thermometer(25.0f, 0, 0x48);  /* gate the restore path */
+    mem_write32(SIO_BASE_GPIO + 0x010, 0);
+    mem_write32(BB_SIO_OE_SET, 1u << 5);
+    ASSERT_EQ(0, mem_read32(BB_SIO_IN) & (1u << 5), "driven low reads low");
+    mem_write32(BB_SIO_OE_CLR, 1u << 5);
+    ASSERT_TRUE(mem_read32(BB_SIO_IN) & (1u << 5), "released reads high");
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_bb_scan_ack) {
+    /* MicroPython-scan shape: bit-banged probe ACKs the mirror,
+     * NACKs empty addresses, and leaves START|addr/STOP in the ring. */
+    reset_cpu();
+    sdd_init();
+    {
+        int addrs[] = { 0x3C };
+        sdd_create_jsmirror(0, addrs, 1);
+    }
+    bb_setup(8, 9);
+    ASSERT_EQ(1, bb_probe(8, 9, 0x3C), "probe 0x3C ACKs");
+    ASSERT_EQ(0, bb_probe(8, 9, 0x40), "probe 0x40 NACKs");
+    /* 0x3C probe: START|addr + STOP. Empty probe logs nothing. */
+    ASSERT_EQ(2, picoemu_jsmirror_pending(), "ring: START|addr + STOP");
+    {
+        uint16_t e[4];
+        int n = picoemu_jsmirror_pop(e, 4);
+        ASSERT_EQ(2, n, "pop 2 entries");
+        ASSERT_EQ(0x13C, e[0], "START|0x3C");
+        ASSERT_EQ(0x200, e[1], "STOP");
+    }
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_bb_write_reaches_mirror) {
+    /* Bit-banged data bytes land in the slave + mirror ring. */
+    reset_cpu();
+    sdd_init();
+    {
+        int addrs[] = { 0x3C };
+        sdd_create_jsmirror(0, addrs, 1);
+    }
+    bb_setup(8, 9);
+    {
+        uint32_t sm = 1u << 9, cm = 1u << 8;
+        uint8_t bytes[] = { 0xA5, 0x5A };
+        mem_write32(BB_SIO_OE_SET, sm);             /* START */
+        mem_write32(BB_SIO_OE_SET, cm);             /* SCL low before setup */
+        uint8_t ab = 0x3C << 1;
+        for (int b = -1; b < 2; b++) {
+            uint8_t v = (b < 0) ? ab : bytes[b];
+            for (int i = 7; i >= 0; i--) {
+                if ((v >> i) & 1) mem_write32(BB_SIO_OE_CLR, sm);
+                else mem_write32(BB_SIO_OE_SET, sm);
+                mem_write32(BB_SIO_OE_CLR, cm);
+                mem_write32(BB_SIO_OE_SET, cm);
+            }
+            mem_write32(BB_SIO_OE_CLR, sm);         /* ACK clock */
+            mem_write32(BB_SIO_OE_CLR, cm);
+            mem_write32(BB_SIO_OE_SET, cm);
+        }
+        mem_write32(BB_SIO_OE_SET, cm);
+        mem_write32(BB_SIO_OE_SET, sm);
+        mem_write32(BB_SIO_OE_CLR, cm);
+        mem_write32(BB_SIO_OE_CLR, sm);             /* STOP */
+    }
+    ASSERT_EQ(4, picoemu_jsmirror_pending(), "START + 2 bytes + STOP");
+    {
+        uint16_t e[5];
+        int n = picoemu_jsmirror_pop(e, 5);
+        ASSERT_EQ(4, n, "pop 4");
+        ASSERT_EQ(0x13C, e[0], "START|0x3C");
+        ASSERT_EQ(0xA5, e[1], "byte 0");
+        ASSERT_EQ(0x5A, e[2], "byte 1");
+        ASSERT_EQ(0x200, e[3], "STOP");
+    }
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_bb_read_from_slave) {
+    /* Bit-banged READ: slave drives data bits, master NACKs to end.
+     * Thermometer at 0x48, 25.0C -> raw 0x1900, first byte MSB 0x19. */
+    reset_cpu();
+    sdd_init();
+    sdd_create_thermometer(25.0f, 0, 0x48);
+    bb_setup(8, 9);
+    {
+        uint32_t sm = 1u << 9, cm = 1u << 8;
+        mem_write32(BB_SIO_OE_SET, sm);             /* START */
+        mem_write32(BB_SIO_OE_SET, cm);             /* SCL low */
+        uint8_t ab = (0x48u << 1) | 1u;             /* addr + READ */
+        for (int i = 7; i >= 0; i--) {
+            if ((ab >> i) & 1) mem_write32(BB_SIO_OE_CLR, sm);
+            else mem_write32(BB_SIO_OE_SET, sm);
+            mem_write32(BB_SIO_OE_CLR, cm);
+            mem_write32(BB_SIO_OE_SET, cm);
+        }
+        mem_write32(BB_SIO_OE_CLR, sm);             /* ACK clock */
+        mem_write32(BB_SIO_OE_CLR, cm);
+        mem_write32(BB_SIO_OE_SET, cm);
+        uint8_t got = 0;
+        for (int i = 7; i >= 0; i--) {
+            mem_write32(BB_SIO_OE_CLR, cm);         /* rise: slave drives */
+            if (mem_read32(BB_SIO_IN) & sm) got |= (uint8_t)(1u << i);
+            mem_write32(BB_SIO_OE_SET, cm);
+        }
+        mem_write32(BB_SIO_OE_CLR, cm);             /* NACK clock */
+        mem_write32(BB_SIO_OE_SET, cm);
+        mem_write32(BB_SIO_OE_SET, sm);
+        mem_write32(BB_SIO_OE_CLR, cm);
+        mem_write32(BB_SIO_OE_CLR, sm);             /* STOP */
+        ASSERT_EQ(0x19, got, "thermometer MSB via bit-bang read");
+    }
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_reset_clears_wfi_flags) {
+    /* Lockstep rule: reset clears sleep/mask/handler flags. */
+    reset_cpu();
+    set_active_core(CORE0);
+    cores[CORE0].is_wfi = 1;
+    cores[CORE0].faultmask = 1;
+    cores[CORE0].in_handler_mode = 1;
+    cores[CORE0].current_irq = 19;
+    cpu_reset_core(CORE0);
+    ASSERT_EQ(0, cores[CORE0].is_wfi, "WFI cleared");
+    ASSERT_EQ(0, cores[CORE0].faultmask, "FAULTMASK cleared");
+    ASSERT_EQ(0, cores[CORE0].in_handler_mode, "handler mode cleared");
+    ASSERT_EQ(0xFFFFFFFFu, cores[CORE0].current_irq, "IRQ cleared");
+    reset_cpu();
+    PASS();
+}
+
+TEST(test_spimirror_observe_inject) {
+    /* MOSI bytes + CS frames land in the ring; MISO comes from the
+     * inject queue (0xFF idle when empty). */
+    reset_cpu();
+    sdd_init();
+    ASSERT_EQ(0, sdd_create_spimirror(0), "spimirror attaches to SPI0");
+    mem_write32(SPI0_BASE + SPI_SSPCR1, SPI_CR1_SSE);
+    {
+        uint8_t inj[] = { 0x11, 0x22 };
+        ASSERT_EQ(2, picoemu_spimirror_inject(inj, 2), "queue 2 MISO bytes");
+    }
+    spi_device_cs(0, 1);
+    mem_write32(SPI0_BASE + SPI_SSPDR, 0xA5);
+    mem_write32(SPI0_BASE + SPI_SSPDR, 0x5A);
+    ASSERT_EQ(0x11, mem_read32(SPI0_BASE + SPI_SSPDR) & 0xFF, "MISO byte 0");
+    ASSERT_EQ(0x22, mem_read32(SPI0_BASE + SPI_SSPDR) & 0xFF, "MISO byte 1");
+    mem_write32(SPI0_BASE + SPI_SSPDR, 0x00);
+    ASSERT_EQ(0xFF, mem_read32(SPI0_BASE + SPI_SSPDR) & 0xFF, "idle MISO 0xFF");
+    spi_device_cs(0, 0);
+    ASSERT_EQ(5, picoemu_spimirror_pending(), "CS + 3 bytes + CS");
+    {
+        uint16_t e[6];
+        int n = picoemu_spimirror_pop(e, 6);
+        ASSERT_EQ(5, n, "pop 5");
+        ASSERT_EQ(0x100, e[0], "CS assert SPI0");
+        ASSERT_EQ(0xA5, e[1], "MOSI 0");
+        ASSERT_EQ(0x5A, e[2], "MOSI 1");
+        ASSERT_EQ(0x00, e[3], "MOSI 2");
+        ASSERT_EQ(0x200, e[4], "CS deassert SPI0");
+    }
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_spimirror_from_arg) {
+    reset_cpu();
+    sdd_init();
+    ASSERT_TRUE(sdd_create_from_arg("spimirror:spi=1") >= 0, "arg parses");
+    ASSERT_TRUE(sdd_create_from_arg("spimirror:spi=9") < 0, "bad bus rejected");
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_adc_js_tap) {
+    reset_cpu();
+    picoemu_adc_set(0, 2048);
+    ASSERT_EQ(2048, picoemu_adc_get(0), "inject ch0");
+    picoemu_adc_set(1, 99999);
+    ASSERT_EQ(4095, picoemu_adc_get(1), "clamp to 12 bits");
+    picoemu_adc_set(9, 100);
+    ASSERT_EQ(-1, picoemu_adc_get(9), "bad channel rejected");
+    /* Injected value flows through a real conversion. */
+    adc_write32(ADC_BASE + 0x00, (0u << 12) | (1u << 2) | (1u << 0));
+    ASSERT_EQ(2048, adc_read32(ADC_BASE + 0x04) & 0xFFF, "conversion reads tap");
+    PASS();
+}
+
+TEST(test_pwm_readback_tap) {
+    reset_cpu();
+    timing_set_clock_mhz(125);
+    mem_write32(PWM_BASE + PWM_CH_DIV, 0x10);   /* div 1.0 */
+    mem_write32(PWM_BASE + PWM_CH_TOP, 999);
+    mem_write32(PWM_BASE + PWM_CH_CC, (250u << 16) | 750u);
+    mem_write32(PWM_BASE + PWM_CH_CSR, 1);      /* CSR_EN */
+    mem_write32(PWM_BASE + PWM_EN, 1);          /* global slice-0 enable */
+    {
+        uint32_t hz = 0, da = 0, db = 0;
+        int en = 0;
+        ASSERT_EQ(0, picoemu_pwm_read(0, &hz, &da, &db, &en), "slice 0 ok");
+        ASSERT_EQ(125000, hz, "125MHz / (1 * 1000)");
+        ASSERT_EQ(2500, da, "duty A 25%");
+        ASSERT_EQ(7500, db, "duty B 75%");
+        ASSERT_EQ(1, en, "enabled");
+    }
+    {
+        int en = 1;
+        ASSERT_EQ(0, picoemu_pwm_read(1, NULL, NULL, NULL, &en), "slice 1 ok");
+        ASSERT_EQ(0, en, "slice 1 disabled");
+    }
+    ASSERT_EQ(-1, picoemu_pwm_read(12, NULL, NULL, NULL, NULL), "bad slice");
+    timing_set_clock_mhz(1);
+    PASS();
+}
+
+TEST(test_reset_clears_observer_rings) {
+    /* Reset contract: pending observation events clear synchronously
+     * without detaching devices. */
+    reset_cpu();
+    sdd_init();
+    {
+        int addrs[] = { 0x3C };
+        sdd_create_jsmirror(0, addrs, 1);
+    }
+    sdd_create_spimirror(0);
+    mem_write32(SPI0_BASE + SPI_SSPCR1, SPI_CR1_SSE);
+    mem_write32(I2C0_BASE + I2C_TAR, 0x3C);
+    mem_write32(I2C0_BASE + I2C_DATA_CMD, 0xA5 | I2C_DATA_CMD_STOP);
+    mem_write32(SPI0_BASE + SPI_SSPDR, 0x5A);
+    ASSERT_TRUE(picoemu_jsmirror_pending() > 0, "jsmirror has entries");
+    ASSERT_TRUE(picoemu_spimirror_pending() > 0, "spimirror has entries");
+    jsmirror_reset();
+    spimirror_reset();
+    ASSERT_EQ(0, picoemu_jsmirror_pending(), "jsmirror cleared");
+    ASSERT_EQ(0, picoemu_spimirror_pending(), "spimirror cleared");
+    /* Devices still attached: traffic flows again. */
+    mem_write32(I2C0_BASE + I2C_DATA_CMD, 0xA5 | I2C_DATA_CMD_STOP);
+    ASSERT_TRUE(picoemu_jsmirror_pending() > 0, "jsmirror live after reset");
+    sdd_cleanup();
+    PASS();
+}
+
+TEST(test_rv_wfi_wakes_without_mie) {
+    /* Sleep must end on a pending+enabled interrupt even with MIE
+     * clear (no delivery, just resume — the hart re-sleeps or polls).
+     * Gating the wake on MIE hung time.sleep() with MIE briefly off. */
+    rv_clint_state_t clint;
+    rv_cpu_state_t rv;
+    rv_clint_init(&clint, 1);
+    rv_cpu_init(&rv, 0);
+    rv_cpu_reset(&rv, 0x10000000);
+    rv.csr[CSR_MSTATUS] &= ~MSTATUS_MIE;
+    rv.csr[CSR_MIE] = MIE_MTIE;
+    clint.mtimecmp[0] = 50;
+    rv_clint_tick(&clint, 50);
+    rv.is_wfi = 1;
+    uint32_t pc0 = rv.pc;
+    ASSERT_EQ(0, rv_clint_check_interrupts(&clint, &rv), "no delivery with MIE=0");
+    ASSERT_EQ(0, rv.is_wfi, "hart wakes");
+    ASSERT_EQ(pc0, rv.pc, "PC unchanged (no trap taken)");
+    PASS();
+}
+
+TEST(test_rv_timer_bridge_wakes_wfi) {
+    /* TIMER0 alarm edge -> rv_clint_timer_fired -> MEIP wakes a
+     * WFI hart and delivers the external trap. */
+    rv_clint_state_t clint;
+    rv_cpu_state_t rv;
+    rv_clint_init(&clint, 1);
+    rv_cpu_init(&rv, 0);
+    rv_cpu_reset(&rv, 0x10000000);
+    rv.csr[CSR_MSTATUS] |= MSTATUS_MIE;
+    rv.csr[CSR_MIE] = MIE_MEIE;
+    rv.csr[CSR_MTVEC] = 0x10000100;
+    rv.is_wfi = 1;
+    rv_clint_timer_fired(&clint, 0);
+    ASSERT_EQ(1, rv_clint_check_interrupts(&clint, &rv), "external delivered");
+    ASSERT_EQ(0, rv.is_wfi, "hart wakes");
+    ASSERT_EQ(0x10000100, rv.pc, "PC at mtvec handler");
+    PASS();
+}
+
+TEST(test_timer0_alarm_edge_visible) {
+    /* The RV loop bridge keys off fresh TIMER0 INTR edges: arming +
+     * ticking must produce exactly the edge the bridge consumes. */
+    reset_cpu();
+    mem_write32(TIMER_ALARM0, 5);
+    ASSERT_EQ(0, timer_state.intr & 1u, "no edge before tick");
+    uint32_t before = timer_state.intr;
+    timer_tick(10);
+    ASSERT_TRUE((timer_state.intr & ~before) & 1u, "alarm0 edge fires");
+    PASS();
+}
+
 /* ========================================================================
  * PWM Tests
  * ======================================================================== */
@@ -8142,8 +8532,68 @@ TEST(test_m33_thumb2_stlb_ldab) {
     PASS();
 }
 
-TEST(test_m33_thumb2_tbb_tbh) {
-    /* Table branches (unreachable before: bit6 routing sent them to
+TEST(test_m33_smulbb) {
+    /* SMULBB (fault bytes FB16 F603): signed bottom-half multiply.
+     * Misdecoded as LDRB Rt=15 before: PC = a data byte. */
+    reset_cpu();
+    uint32_t pc = FLASH_BASE + 0x1000;
+    cpu.r[6] = 0xFFFFFFFEu;  /* low half = -2 */
+    cpu.r[3] = 0x00000005u;
+    ASSERT_EQ(1, thumb32_step(pc, 0xFB16, 0xF603), "smulbb handled");
+    ASSERT_EQ(0xFFFFFFF6u, cpu.r[6], "(-2)*5 = -10");
+    ASSERT_EQ(pc + 4, cpu.r[15], "pc advances past 32-bit insn");
+    PASS();
+}
+
+TEST(test_m33_smultt) {
+    reset_cpu();
+    uint32_t pc = FLASH_BASE + 0x1000;
+    cpu.r[1] = 0x00050006u;
+    ASSERT_EQ(1, thumb32_step(pc, 0xFB11, 0xF031), "smultt handled");
+    ASSERT_EQ(25u, cpu.r[0], "5*5 (top halves)");
+    ASSERT_EQ(pc + 4, cpu.r[15], "pc advances");
+    PASS();
+}
+
+TEST(test_m33_smlatt) {
+    /* SMLATT (gcc bytes FB10 3431): accumulate + top-half product. */
+    reset_cpu();
+    uint32_t pc = FLASH_BASE + 0x1000;
+    cpu.r[0] = 0x00020001u;
+    cpu.r[1] = 0x00040003u;
+    cpu.r[3] = 100u;
+    ASSERT_EQ(1, thumb32_step(pc, 0xFB10, 0x3431), "smlatt handled");
+    ASSERT_EQ(108u, cpu.r[4], "100 + 2*4");
+    ASSERT_EQ(pc + 4, cpu.r[15], "pc advances");
+    PASS();
+}
+
+TEST(test_m33_smlabb_qflag) {
+    /* Signed accumulate overflow sets the Q sticky flag. */
+    reset_cpu();
+    uint32_t pc = FLASH_BASE + 0x1000;
+    cpu.r[1] = 2u;
+    cpu.r[0] = 2u;
+    cpu.r[2] = 0x7FFFFFFFu;
+    cpu.xpsr &= ~(1u << 27);
+    ASSERT_EQ(1, thumb32_step(pc, 0xFB11, 0x2000), "smlabb handled");
+    ASSERT_EQ(0x80000003u, cpu.r[0], "wraps");
+    ASSERT_TRUE(cpu.xpsr & (1u << 27), "Q flag set");
+    PASS();
+}
+
+TEST(test_m33_dsp_gap_loud) {
+    /* Unimplemented DSP/multiply space (FB3x SMULW, FB7x USAD8) must
+     * decline loudly, never misdecode as a load into PC. */
+    reset_cpu();
+    uint32_t pc = FLASH_BASE + 0x1000;
+    cpu.r[15] = pc;
+    ASSERT_EQ(0, thumb32_step(pc, 0xFB30, 0xF000), "smulw space unhandled");
+    ASSERT_EQ(0, thumb32_step(pc, 0xFB70, 0xF000), "usad8 space unhandled");
+    PASS();
+}
+
+TEST(test_m33_thumb2_tbb_tbh) {    /* Table branches (unreachable before: bit6 routing sent them to
      * LDRD/STRD, so littleos_pico2's switch jumped to 0x002C0149).
      * E8DF F001 = tbb [pc, r1]; table byte 3 -> pc+4+6. */
     reset_cpu();
@@ -9498,6 +9948,22 @@ int main(void) {
     RUN_TEST(test_i2c1_independent);
     RUN_TEST(test_i2c_enable_disable);
     RUN_TEST(test_i2c_comp_type);
+    RUN_TEST(test_i2c_tx_abrt_addr_noack);
+    RUN_TEST(test_i2c_no_abrt_when_attached);
+    RUN_TEST(test_i2c_read_noack_when_empty);
+    RUN_TEST(test_bb_release_restores_pullup);
+    RUN_TEST(test_bb_scan_ack);
+    RUN_TEST(test_bb_write_reaches_mirror);
+    RUN_TEST(test_spimirror_observe_inject);
+    RUN_TEST(test_spimirror_from_arg);
+    RUN_TEST(test_adc_js_tap);
+    RUN_TEST(test_pwm_readback_tap);
+    RUN_TEST(test_reset_clears_observer_rings);
+    RUN_TEST(test_rv_wfi_wakes_without_mie);
+    RUN_TEST(test_rv_timer_bridge_wakes_wfi);
+    RUN_TEST(test_timer0_alarm_edge_visible);
+    RUN_TEST(test_bb_read_from_slave);
+    RUN_TEST(test_reset_clears_wfi_flags);
     END_CATEGORY("I2C Peripheral");
 
     BEGIN_CATEGORY("PWM Peripheral");
@@ -9789,6 +10255,11 @@ int main(void) {
     RUN_TEST(test_m33_thumb2_ldaex_strexb);
     RUN_TEST(test_m33_thumb2_ldrw_pc_masks_thumb_bit);
     RUN_TEST(test_m33_thumb2_stlb_ldab);
+    RUN_TEST(test_m33_smulbb);
+    RUN_TEST(test_m33_smultt);
+    RUN_TEST(test_m33_smlatt);
+    RUN_TEST(test_m33_smlabb_qflag);
+    RUN_TEST(test_m33_dsp_gap_loud);
     RUN_TEST(test_m33_thumb2_tbb_tbh);
     RUN_TEST(test_m33_thumb2_ldrex_strex);
     RUN_TEST(test_m33_thumb2_vfp_nop);

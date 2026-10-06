@@ -13,7 +13,7 @@ the speed of pure-JavaScript emulators (rp2040js, GhostRoboticsLab/rp2350js_emul
 
 ## Why Pico-emu
 
-- v1.0.2, 474 tests passing
+- v1.0.3, 495 tests passing
 - Complete RP2040 + RP2350 (ARM + RISC-V Hazard3)
 - ALL peripherals: UART, SPI, I2C, PWM, ADC, DMA, PIO, GPIO, USB, WiFi (CYW43),
   SD card, eMMC, networking (TAP/W5500/virtual Ethernet), sensors (BME280)
@@ -75,7 +75,7 @@ Pico-emu/
 │   └── rp2350_arm/
 │       └── m33_cpu.c       # Cortex-M33 core
 ├── include/                 # Header files
-├── tests/                   # Test suite (474 tests)
+├── tests/                   # Test suite (495 tests)
 ├── test-firmware/           # Test firmware binaries
 ├── docs/                    # Documentation
 ├── CMakeLists.txt           # Native build (CMake)

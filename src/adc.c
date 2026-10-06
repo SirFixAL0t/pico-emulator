@@ -44,6 +44,19 @@ void adc_set_channel_value(uint8_t channel, uint16_t value) {
     }
 }
 
+/* JS tap: per-channel voltage inject for analogRead cells. */
+void picoemu_adc_set(int channel, int raw12) {
+    if (channel < 0 || channel >= ADC_NUM_CHANNELS) return;
+    if (raw12 < 0) raw12 = 0;
+    if (raw12 > 0xFFF) raw12 = 0xFFF;
+    adc_state.channel_values[(uint8_t)channel] = (uint16_t)raw12;
+}
+
+int picoemu_adc_get(int channel) {
+    if (channel < 0 || channel >= ADC_NUM_CHANNELS) return -1;
+    return (int)adc_state.channel_values[(uint8_t)channel];
+}
+
 /* ========================================================================
  * FIFO helpers
  * ======================================================================== */

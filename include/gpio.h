@@ -116,6 +116,10 @@ uint32_t gpio_effective_pins(void);
  * guest OE/OUT writes can no longer clobber its driven level. */
 void gpio_mark_driven(uint8_t pin);
 void gpio_unmark_driven(uint8_t pin);
+/* Slave-driven line level (bit-bang I2C ACK/data): force the IN latch
+ * without edge/IRQ side effects. Skips emulator-driven board lines so
+ * a slave can never fight W5500 INTn / CYW43 HOST_WAKE. */
+void gpio_inject_level(uint8_t pin, uint8_t value);
 
 /* External state */
 extern gpio_state_t gpio_state;

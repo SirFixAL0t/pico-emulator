@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(Pico-emu
-    VERSION 1.0.2
+    VERSION 1.0.3
     DESCRIPTION "A lightweight RP2040/RP2350 emulator in C"
     LANGUAGES C
 )
@@ -63,6 +63,9 @@ set(EMU_SOURCES
     src/sdd.c
     src/sdd_thermo.c
     src/sdd_eeprom.c
+    src/sdd_jsmirror.c
+    src/i2c_bitbang.c
+    src/sdd_spimirror.c
     src/rp2350_rv/rv_cpu.c
     src/rp2350_rv/rv_clint.c
     src/rp2350_rv/rv_membus.c

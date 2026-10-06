@@ -149,3 +149,32 @@ void pwm_write32(uint32_t offset, uint32_t val) {
         ((pwm_state.intr | pwm_state.intf1) & pwm_state.inte1))
         nvic_signal_rp2350_irq(IRQ_PWM_IRQ_WRAP);
 }
+
+/* JS tap: frequency/duty readback (see pwm.h). DIV is 8.4 fixed-point:
+ * freq = sysclk / ((div_int + div_frac/16) * (TOP+1)). */
+int picoemu_pwm_read(int slice, uint32_t *freq_hz, uint32_t *duty_a,
+                     uint32_t *duty_b, int *enabled) {
+    if (slice < 0 || slice >= PWM_NUM_SLICES) return -1;
+    const pwm_slice_t *s = &pwm_state.slice[slice];
+    uint32_t top = s->top;
+    uint32_t div_raw = s->div & 0xFFFu;
+    uint64_t freq = 0;
+    if (div_raw != 0) {
+        uint64_t sysclk = (uint64_t)timing_config.cycles_per_us * 1000000ull;
+        freq = (sysclk * 16ull) / ((uint64_t)div_raw * (uint64_t)(top + 1u));
+    }
+    uint32_t denom = top + 1u;
+    uint32_t cca = (s->cc >> 16) & 0xFFFFu;
+    uint32_t ccb = s->cc & 0xFFFFu;
+    uint32_t da = denom ? (uint32_t)(((uint64_t)cca * 10000ull) / denom) : 0;
+    uint32_t db = denom ? (uint32_t)(((uint64_t)ccb * 10000ull) / denom) : 0;
+    if (da > 10000u) da = 10000u;
+    if (db > 10000u) db = 10000u;
+    int en = ((s->csr & PWM_CSR_EN) &&
+              (pwm_state.en & (1u << (uint32_t)slice))) ? 1 : 0;
+    if (freq_hz) *freq_hz = (uint32_t)freq;
+    if (duty_a) *duty_a = da;
+    if (duty_b) *duty_b = db;
+    if (enabled) *enabled = en;
+    return 0;
+}

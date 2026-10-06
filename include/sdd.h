@@ -107,4 +107,30 @@ int  sdd_create_thermometer(float initial_temp, int i2c_bus, int i2c_addr);
 /* Create a 24LC256-compatible EEPROM SDD (file may be NULL) */
 int  sdd_create_eeprom(int i2c_bus, int i2c_addr, const char *file);
 
+/* Create JS-mirror slave(s): ACKs the given addresses
+ * and mirrors every transaction into a JS-pollable ring. addrs[] holds up
+ * to 8 seven-bit addresses sharing one ring (sdd_add resets per call). */
+int  sdd_create_jsmirror(int i2c_bus, const int *addrs, int naddrs);
+
+/* JS-mirror ring: polled by the JS host (stable ABI, also used by tests).
+ * Entry encoding: 0x100|addr7 = START, 0x200 = STOP, 0x00-0xFF = byte. */
+int  picoemu_jsmirror_pending(void);
+int  picoemu_jsmirror_drops(void);
+int  picoemu_jsmirror_pop(uint16_t *out, int max);
+/* Clear ring + drop counter without detaching devices (reset paths). */
+void jsmirror_reset(void);
+
+/* Create an SPI-mirror slave (MOSI observe + MISO inject, see above).
+ * Replaces any sdcard/emmc on that bus (single PL022 device slot). */
+int  sdd_create_spimirror(int spi_bus);
+
+/* SPI-mirror ring: 0x100|spi = CS assert, 0x200|spi = CS deassert,
+ * 0x00-0xFF = MOSI byte. MISO replies come from the inject queue
+ * (0xFF when empty). */
+int  picoemu_spimirror_pending(void);
+int  picoemu_spimirror_drops(void);
+int  picoemu_spimirror_pop(uint16_t *out, int max);
+int  picoemu_spimirror_inject(const uint8_t *data, int len);
+void spimirror_reset(void);
+
 #endif /* SDD_H */

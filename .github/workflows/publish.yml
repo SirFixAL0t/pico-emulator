@@ -8,9 +8,9 @@ on:
         required: true
         default: "main"
       version:
-        description: "Version (semver, e.g. 1.0.2)"
+        description: "Version (semver, e.g. 1.0.3)"
         required: true
-        default: "1.0.2"
+        default: "1.0.3"
       description:
         description: "Package description"
         required: true

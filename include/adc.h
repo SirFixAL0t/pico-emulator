@@ -111,6 +111,11 @@ void adc_write32(uint32_t addr, uint32_t val);
 /* Set a channel's analog value (for testing or external injection) */
 void adc_set_channel_value(uint8_t channel, uint16_t value);
 
+/* JS-tap wrappers (stable ABI): raw 12-bit codes, 0-4095 for a
+ * 0-3.3V input (raw = mv * 4095 / 3300). ch 0-3 = A0-A3, 4 = temp. */
+void picoemu_adc_set(int channel, int raw12);
+int picoemu_adc_get(int channel);
+
 /* Perform one ADC conversion (called when START_ONCE or free-running) */
 void adc_do_conversion(void);
 

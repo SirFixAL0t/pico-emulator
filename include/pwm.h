@@ -71,4 +71,11 @@ uint32_t pwm_read32(uint32_t offset);
 void pwm_write32(uint32_t offset, uint32_t val);
 int pwm_match(uint32_t addr);
 
+/* JS tap: frequency/duty readback for servo/LED/buzzer cells.
+ * freq_hz: sysclk / (div * (TOP+1)); duty_a/b: 0-10000 (0.01% steps);
+ * enabled: slice CSR_EN && global EN bit. Any out-param may be NULL.
+ * Returns 0 on success, -1 for a bad slice. */
+int picoemu_pwm_read(int slice, uint32_t *freq_hz, uint32_t *duty_a,
+                     uint32_t *duty_b, int *enabled);
+
 #endif /* PWM_H */

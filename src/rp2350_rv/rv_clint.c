@@ -100,10 +100,23 @@ void rv_clint_set_ext_pending(rv_clint_state_t *clint, uint32_t irq_num) {
     if (irq_num < RV_NUM_EXT_IRQS)
         clint->ext_pending |= (1ULL << irq_num);
 }
-
 void rv_clint_clear_ext_pending(rv_clint_state_t *clint, uint32_t irq_num) {
     if (irq_num < RV_NUM_EXT_IRQS)
         clint->ext_pending &= ~(1ULL << irq_num);
+}
+
+/* TIMER alarm bridge: the RP2040 TIMER0 / RP2350 TIMER1 blocks have no
+ * CLINT line of their own, so RV loops call this when a fresh alarm
+ * edge fires (see main.c / picoemu_wasm.c RV step paths). The source is
+ * hardwired, so pending and both harts' enables are set together —
+ * RV firmware has no CLINT-enable MMIO to program. Without this,
+ * SDK alarm-pool sleep (TIMER + WFI) hangs the hart forever: the
+ * alarm only ever signalled the ARM NVIC. */
+void rv_clint_timer_fired(rv_clint_state_t *clint, int timer_no) {
+    uint64_t bit = (timer_no == 1) ? 2ULL : 1ULL;
+    clint->ext_pending |= bit;
+    clint->ext_enable[0] |= bit;
+    clint->ext_enable[1] |= bit;
 }
 
 /* ========================================================================
@@ -139,9 +152,16 @@ int rv_clint_check_interrupts(rv_clint_state_t *clint, rv_cpu_state_t *hart) {
     /* Update mip CSR so firmware can read it */
     hart->csr[CSR_MIP] = mip;
 
-    /* Check if interrupts are globally enabled */
-    if (!(mstatus & MSTATUS_MIE))
+    /* WFI wake does not need MIE: a pending+enabled interrupt resumes
+     * the hart (which re-sleeps if it has nothing to deliver, exactly
+     * like the ARM wake check that ignores PRIMASK). Gating the wake
+     * on MIE hung MicroPython time.sleep() with interrupts briefly
+     * disabled across the WFI. */
+    if (!(mstatus & MSTATUS_MIE)) {
+        if (hart->is_wfi && (mip & mie_csr))
+            hart->is_wfi = 0;
         return 0;
+    }
 
     /* WFI wake: any pending+enabled interrupt wakes the hart */
     if (hart->is_wfi && (mip & mie_csr)) {

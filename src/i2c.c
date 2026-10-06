@@ -11,6 +11,7 @@
 
 #include <string.h>
 #include "i2c.h"
+#include "i2c_bitbang.h"
 #include "nvic.h"
 
 i2c_state_t i2c_state[2];
@@ -42,6 +43,7 @@ void i2c_init(void) {
         i2c_state[i].device_count = 0;
         i2c_reset_instance(&i2c_state[i]);
     }
+    i2c_bb_reset();
 }
 
 int i2c_match(uint32_t addr) {
@@ -152,7 +154,10 @@ uint32_t i2c_read32(int i2c_num, uint32_t offset) {
     case I2C_CLR_TX_OVER:
         { c->raw_intr_stat &= ~I2C_INT_TX_OVER; return 0; }
     case I2C_CLR_TX_ABRT:
-        { c->raw_intr_stat &= ~I2C_INT_TX_ABRT; return 0; }
+        /* Clear-on-read: reading CLR_TX_ABRT clears the abort flag
+         * and its sticky reason (SDK polls tx_abrt_source then reads
+         * this; IC_CLR_TX_ABRT itself always reads 0). */
+        { c->raw_intr_stat &= ~I2C_INT_TX_ABRT; c->tx_abrt_source = 0; return 0; }
     case I2C_CLR_STOP_DET:
         { c->raw_intr_stat &= ~I2C_INT_STOP_DET; return 0; }
     case I2C_CLR_START_DET:
@@ -172,7 +177,7 @@ uint32_t i2c_read32(int i2c_num, uint32_t offset) {
     case I2C_TXFLR:         return 0;  /* TX instantly consumed */
     case I2C_RXFLR:         return (uint32_t)c->rx_count;
     case I2C_SDA_HOLD:      return c->sda_hold;
-    case I2C_TX_ABRT_SOURCE: return 0;
+    case I2C_TX_ABRT_SOURCE: return c->tx_abrt_source;
     case I2C_DMA_CR:        return c->dma_cr;
     case I2C_DMA_TDLR:      return c->dma_tdlr;
     case I2C_DMA_RDLR:      return c->dma_rdlr;
@@ -201,6 +206,19 @@ void i2c_write32(int i2c_num, uint32_t offset, uint32_t val) {
         uint8_t addr = (uint8_t)(c->tar & 0x7F);
         i2c_device_entry_t *dev = find_device(c, addr);
 
+        /* No slave at this address: NACK the address byte. Real DW
+         * hardware raises TX_ABRT with ABRT_7B_ADDR_NOACK, auto-sends
+         * STOP (so SDK loops waiting on STOP_DET terminate) and
+         * flushes RX. SDK/Arduino endTransmission/scan rely on this
+         * to tell live addresses from empty ones; previously every
+         * address silently "succeeded" and TX_ABRT_SOURCE hard-read 0. */
+        if (!dev) {
+            c->tx_abrt_source |= I2C_TX_ABRT_7B_ADDR_NOACK;
+            c->raw_intr_stat |= I2C_INT_TX_ABRT | I2C_INT_STOP_DET;
+            c->rx_head = c->rx_tail = c->rx_count = 0;
+            break;
+        }
+
         if (val & I2C_DATA_CMD_RESTART) {
             if (dev && dev->start_fn) dev->start_fn(dev->ctx);
         }
@@ -213,9 +231,16 @@ void i2c_write32(int i2c_num, uint32_t offset, uint32_t val) {
             }
             rx_push(c, data);
         } else {
-            /* Write command: send byte to device */
+            /* Write command: send byte to device. A nonzero return
+             * is a slave data-NACK (TXDATA_NOACK + abort + auto-STOP);
+             * all in-tree slaves return 0 (ACK). */
             if (dev && dev->write_fn) {
-                dev->write_fn(dev->ctx, (uint8_t)(val & 0xFF));
+                if (dev->write_fn(dev->ctx, (uint8_t)(val & 0xFF)) != 0) {
+                    c->tx_abrt_source |= I2C_TX_ABRT_TXDATA_NOACK;
+                    c->raw_intr_stat |= I2C_INT_TX_ABRT | I2C_INT_STOP_DET;
+                    c->rx_head = c->rx_tail = c->rx_count = 0;
+                    break;
+                }
             }
         }
 
@@ -234,7 +259,7 @@ void i2c_write32(int i2c_num, uint32_t offset, uint32_t val) {
     case I2C_RX_TL:         c->rx_tl = val & 0xFF; break;
     case I2C_TX_TL:         c->tx_tl = val & 0xFF; break;
     case I2C_CLR_INTR:      c->raw_intr_stat = 0; break;
-    case I2C_CLR_TX_ABRT:   c->raw_intr_stat &= ~I2C_INT_TX_ABRT; break;
+    case I2C_CLR_TX_ABRT:   c->raw_intr_stat &= ~I2C_INT_TX_ABRT; c->tx_abrt_source = 0; break;
     case I2C_ENABLE:        c->enable = val & 0x03; break;
     case I2C_SDA_HOLD:      c->sda_hold = val & 0xFFFF; break;
     case I2C_DMA_CR:        c->dma_cr = val & 0x03; break;
@@ -264,5 +289,37 @@ int i2c_attach_device(int i2c_num, uint8_t addr,
     e->start_fn = start_fn;
     e->stop_fn = stop_fn;
     e->ctx = ctx;
+    return 0;
+}
+
+/* Bit-bang (GPIO) slave bridge: same device registry as the DW
+ * controller, so soft-I2C masters see the same slaves. */
+
+static i2c_device_entry_t *find_device_any(uint8_t addr) {
+    for (int bus = 0; bus < 2; bus++) {
+        i2c_device_entry_t *d = find_device(&i2c_state[bus], addr);
+        if (d) return d;
+    }
+    return NULL;
+}
+
+int i2c_any_attached(void) {
+    return i2c_state[0].device_count > 0 || i2c_state[1].device_count > 0;
+}
+
+int i2c_probe_ack(uint8_t addr) {
+    return find_device_any(addr & 0x7F) != NULL;
+}
+
+uint8_t i2c_slave_read_byte(uint8_t addr) {
+    i2c_device_entry_t *d = find_device_any(addr & 0x7F);
+    if (d && d->read_fn) return d->read_fn(d->ctx);
+    return 0xFF;
+}
+
+int i2c_slave_write_byte(uint8_t addr, uint8_t data) {
+    i2c_device_entry_t *d = find_device_any(addr & 0x7F);
+    if (!d) return -1;
+    if (d->write_fn) return d->write_fn(d->ctx, data);
     return 0;
 }

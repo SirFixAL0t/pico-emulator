@@ -5,6 +5,8 @@
 #include "emulator.h"
 #include "nvic.h"
 #include "devtools.h"
+#include "i2c.h"
+#include "i2c_bitbang.h"
 
 /* pico-eth (W5500-EVB-Pico) GPIO hook. w5500.c is always linked into
  * every target (native, tests, WASM), so declare the real functions
@@ -48,6 +50,19 @@ void gpio_mark_driven(uint8_t pin) {
 
 void gpio_unmark_driven(uint8_t pin) {
     if (pin < NUM_GPIO_PINS) gpio_driven_mask &= ~(1u << (uint32_t)pin);
+}
+
+/* Force an input-latch level with no edge/IRQ side effects: models a
+ * slave device pulling an open-drain line (bit-bang I2C ACK/data bits).
+ * Unlike gpio_set_input_pin (board lines: fires GPIO IRQs), this is
+ * silent — the guest samples the level, it does not interrupt on it.
+ * Board-driven lines (driven_mask) win over slaves. */
+void gpio_inject_level(uint8_t pin, uint8_t value) {
+    if (pin >= 32) return;
+    uint32_t mask = 1u << (uint32_t)pin;
+    if (gpio_driven_mask & mask) return;
+    if (value) gpio_state.gpio_in |= mask;
+    else gpio_state.gpio_in &= ~mask;
 }
 
 /* Sync the IN latch to the OUT latch for pins becoming outputs (mask).
@@ -345,6 +360,7 @@ void gpio_write32(uint32_t addr, uint32_t val) {
     /* SIO GPIO registers (fast access with atomic operations) */
     if (addr >= SIO_BASE_GPIO && addr < SIO_BASE_GPIO + 0x100) {
         uint32_t old_pins = gpio_effective_pins();
+        uint32_t old_oe = gpio_state.gpio_oe;
         uint32_t old_hi = (gpio_state.gpio_out_hi & gpio_state.gpio_oe_hi) |
                           (gpio_state.gpio_in_hi & ~gpio_state.gpio_oe_hi);
         switch (addr) {
@@ -464,6 +480,21 @@ void gpio_write32(uint32_t addr, uint32_t val) {
                     }
                 }
                 break;
+        }
+        /* Open-drain release restore + bit-bang I2C slave bridge.
+         * Real silicon with pulls-up returns a released line HIGH;
+         * without this the IN latch keeps the last driven level and
+         * soft-I2C masters (MicroPython scan) can neither see their
+         * own STOP nor sample a slave ACK (and burn 50ms timeouts
+         * polling a stuck-low clock). The restore is unconditional
+         * silicon fidelity; only the slave observer is gated on
+         * attached I2C devices, so a bare board keeps no extra ACKs. */
+        {
+            uint32_t released = old_oe & ~gpio_state.gpio_oe;
+            if (released) {
+                gpio_state.gpio_in |= (released & ~gpio_driven_mask);
+            }
+            i2c_bb_observe(old_pins, gpio_effective_pins());
         }
         /* Detect edge/level events from pin value changes */
         gpio_detect_events(old_pins, gpio_effective_pins());

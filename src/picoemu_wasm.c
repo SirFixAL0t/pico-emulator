@@ -200,6 +200,10 @@ int picoemu_load_elf(const uint8_t *data, int len) {
 }
 
 void picoemu_reset(void) {
+    /* Observation rings are synchronous state: a reset clears pending
+     * events without detaching devices (cross-cutting lockstep rule). */
+    jsmirror_reset();
+    spimirror_reset();
     if (current_arch == ARCH_RV32) {
         picobin_info_t pbi = picobin_scan(cpu.flash, 4096);
         if (pbi.found && pbi.entry_pc != 0) {
@@ -493,8 +497,16 @@ int picoemu_step(int n_instructions) {
             uart_tick();
             rv_clint_tick(&rv_bus.clint, 1);
             if (rv_bus.clint.cycle_accum == 0) {
+                uint32_t t0 = timer_state.intr;
+                uint32_t t1 = rv_bus.periph.timer1.intr;
                 timer_tick(1);
                 rp2350_timer1_tick(&rv_bus.periph, 1);
+                /* TIMER alarms have no CLINT line: bridge fresh edges so
+                 * SDK alarm-pool sleep (TIMER + WFI) can wake the hart. */
+                if ((timer_state.intr & ~t0) != 0)
+                    rv_clint_timer_fired(&rv_bus.clint, 0);
+                if ((rv_bus.periph.timer1.intr & ~t1) != 0)
+                    rv_clint_timer_fired(&rv_bus.clint, 1);
             }
             rv_clint_check_interrupts(&rv_bus.clint, &rv_cores[0]);
             if (ncores > 1 && !rv_cores[1].is_halted)
@@ -664,6 +676,16 @@ void picoemu_get_core_state(int core, uint32_t *pc, uint32_t *sp) {
         if (core == 0) { *pc = cores[0].r[15]; *sp = cores[0].r[13]; }
         else { *pc = cores[1].r[15]; *sp = cores[1].r[13]; }
     }
+}
+
+/* Sim-time stamp for the runner (multi-board lockstep edge stamps +
+ * skew/pace accounting): total retired cycles on core 0. Exact as a
+ * double below 2^53. Synchronous with picoemu_step. */
+double picoemu_cycle_count(void) {
+    extern uint64_t global_cycle_count;
+    if (current_arch == ARCH_RV32)
+        return (double)rv_cores[0].cycle_count;
+    return (double)global_cycle_count;
 }
 
 uint8_t *picoemu_get_flash_ptr(void) {

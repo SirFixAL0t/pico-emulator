@@ -75,6 +75,10 @@
 #define I2C_INT_STOP_DET    (1u << 9)
 #define I2C_INT_START_DET   (1u << 10)
 
+/* TX_ABRT_SOURCE bits (Synopsys DW_apb_i2c) */
+#define I2C_TX_ABRT_7B_ADDR_NOACK  (1u << 0)  /* address byte NACKed */
+#define I2C_TX_ABRT_TXDATA_NOACK   (1u << 3)  /* data byte NACKed by slave */
+
 /* DATA_CMD bits */
 #define I2C_DATA_CMD_READ   (1u << 8)
 #define I2C_DATA_CMD_STOP   (1u << 9)
@@ -122,6 +126,11 @@ typedef struct {
     uint8_t rx_fifo[I2C_FIFO_SIZE];
     int rx_head, rx_tail, rx_count;
 
+    /* TX abort: sticky until CLR_TX_ABRT (clear-on-read). Set when a
+     * transfer targets an address with no attached device (ADDR_NOACK)
+     * or a slave NACKs a data byte (TXDATA_NOACK, write_fn != 0). */
+    uint32_t tx_abrt_source;
+
     /* Attached devices */
     i2c_device_entry_t devices[I2C_MAX_DEVICES];
     int device_count;
@@ -141,5 +150,23 @@ int i2c_attach_device(int i2c_num, uint8_t addr,
                       i2c_device_event_fn start_fn,
                       i2c_device_event_fn stop_fn,
                       void *ctx);
+
+/* Bit-bang (GPIO) slave bridge: does any attached device (either bus)
+ * ACK this 7-bit address? Used by the GPIO-level I2C observer so
+ * soft-I2C scans (MicroPython machine.I2C.scan) see real slaves. */
+int i2c_probe_ack(uint8_t addr);
+
+/* Bit-bang read path: next byte from the first device at addr
+ * (open-bus 0xFF when none — same as the DW read path default). */
+uint8_t i2c_slave_read_byte(uint8_t addr);
+
+/* Bit-bang write path: deliver one data byte to the device at addr.
+ * Returns 0 on ACK, nonzero on NACK (no device). */
+int i2c_slave_write_byte(uint8_t addr, uint8_t data);
+
+/* True when at least one I2C device is attached on either bus.
+ * Gates the GPIO observer + open-drain release restore so a bare
+ * board (no sdd_add) stays bit-identical. */
+int i2c_any_attached(void);
 
 #endif /* I2C_H */

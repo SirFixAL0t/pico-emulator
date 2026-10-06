@@ -1,5 +1,53 @@
 # Pico-emu RP2040/RP2350 Emulator - Changelog
 
+## [1.0.3] - 2026-10-06
+
+### Added - simulator hook contract (I2C scan-ACK, sleep/wakeup, SPI/ADC/PWM taps) + M33 SMULBB HardFault fix
+
+**I2C observation + scan-ACK** (`src/i2c_bitbang.c`, `src/sdd_jsmirror.c`):
+`jsmirror:i2c=0,addr=0x3c[,addr=…]` ACKs its addresses and mirrors every
+transaction for DW-controller *and* GPIO bit-bang masters, so
+MicroPython `machine.I2C.scan()` (soft-I2C fallback for zero-length
+probes) and Arduino's GPIO `_probe` see live slaves — proven live with
+stock `micropython_rp2040.uf2`: `scan()` → `[60]`. Companion silicon
+fixes: open-drain release reads HIGH again (was a stale latch; also
+kills 50ms clock-stretch stalls) and the DW path models `TX_ABRT`
+(`ADDR_NOACK`/`TXDATA_NOACK` + auto-STOP + RX flush, clear-on-read)
+instead of hard-returning 0, so SDK/Arduino get real NACK codes.
+
+**RV32 sleep/wakeup** (`rv_clint.c`, both RV step loops): `TIMER0/1`
+alarm edges bridge into the CLINT (`rv_clint_timer_fired` — RV
+firmware has no CLINT-enable MMIO, the source is hardwired), and the
+WFI wake no longer needs MIE. Proven live: stock MicroPython
+`time.sleep(1)` returns and the REPL continues. 32-bit `WFI/WFE/SEV`
+hints really sleep/wake now (were NOPs).
+
+**Runner taps**: `spimirror:spi=0` SDD (MOSI observe + MISO inject +
+CS framing ring; replaces sdcard/emmc on that bus), `picoemu_adc_set/
+get` (raw 12-bit), `picoemu_pwm_read` (Hz + duty/10000 + enable),
+`picoemu_cycle_count` (sim-time stamp for lockstep edge stamps) — all
+in the WASM export list. `emsdk-version` pins the toolchain (6.0.9);
+`build_wasm.sh` fails loudly on mismatch.
+
+**M33 HardFault root-caused + fixed** (`thumb32.c`): the Pico 2
+Adafruit-`display()` fault (`PC=0x3E380000`) was *not* a fetch/ICache
+misfire — GCC emits `smulbb` for framebuffer math and the decoder had
+no SMUL family, so `FB16 F603` misdecoded as `LDRB Rt=15` (PC = a data
+byte `0x10`, ROM-magic detour, stale-LR landing, delayed `blx r6`
+fault). Added SMULBB/BT/TB/TT + SMLABB/… (Q on SMLA overflow,
+`Rd==15` declined); residual FA/FB now faults loudly instead of
+misdecoding as a load. Diagnostics kept: HardFault logs handler word +
+faulting halfwords + IT state, `CALLEE-CLOBBER` r4–r11 entry/return
+check, 32-bit insns in `-trace`. Proven: real Adafruit repro runs
+220+ clean frames (was instant fault).
+
+**Reset contract**: `cpu_reset_core` clears `is_wfi`/`faultmask`/
+handler state (a reset during sleep never woke); observer rings clear
+without detaching devices.
+
+Verified: 495/495 unit tests (21 new), firmware sweep 70/70, WASM
+rebuild + `test-wasm.js` green. Full per-item spec in `pico-emu.md`.
+
 ## [1.0.2] - 2026-09-30
 
 ### Changed - npm package renamed `picoemu` → `pico-emu`, repo moved to `pico-emulator`

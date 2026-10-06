@@ -21,9 +21,9 @@ npx pico-emu hello_world.uf2         # CLI: arch auto-detected from UF2
 Browser UI (`web/index.html`) has RP2040 / M33 / RV32 demo dropdowns, serial
 monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs/PICOEMU.md).
 
-## Current Status: v1.0.2
+## Current Status: v1.0.3
 
-  474/474 tests passing, sweep 70/70. **RP2040 (M0+)**: littleOS shell, TinyUSB CDC `hello_usb`, MicroPython v1.22.1 REPL (USB CDC), all peripheral self-tests. **RP2350 ARM (M33, `-arch m33`)**: littleOS shell with Sage eval (`print(6*7)` = `42`), VFP single + deferred-compute double, TrustZone SAU/MPU, DSP scalar + MVE-Helium integer vectors. **RP2350 RISC-V (RV32, `-arch rv32`)**: Hazard3 RV32IMAC + Zba/Zbb/Zbs/Zcb/Zcmp + Zfinx single-float, CLINT, dual-hart; littleOS shell. Firmware auto-detects via UF2 family ID / picobin IMAGE_DEF. **Networking**: vnet bus (TAP bridge, peer mesh), W5500/W6300 live sockets (`-net-live`, `-net-live6300`, `web/net_proxy.py`), MACRAW socket-0 single-gateway path shared by WiFi + both Ethernet chips. **Wired Ethernet**: `pico-eth`/`pico-eth2` (W5500, SPI0 CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` (W6300 dual IPv4/IPv6 offload, SPI0 QSPI-single CS16/RST22/INT15); in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` guests (DORA + HTTP on all three cores) + Arduino `Wiznet5500lwIP` / `W6300lwIP` DORA prove-outs (see CHANGELOG). **Bluetooth**: HCI responder + GATT loopback (`GATT-DONE`, sweep-locked), HCI-forward to Bumble/RootCanal/physical (`web/hci_bridge.py`), ARM `ble_adv` guests reach `ARM BLE LISTEN`.
+  495/495 tests passing, sweep 70/70. **RP2040 (M0+)**: littleOS shell, TinyUSB CDC `hello_usb`, MicroPython v1.22.1 REPL (USB CDC), all peripheral self-tests. **RP2350 ARM (M33, `-arch m33`)**: littleOS shell with Sage eval (`print(6*7)` = `42`), VFP single + deferred-compute double, TrustZone SAU/MPU, DSP scalar + MVE-Helium integer vectors. **RP2350 RISC-V (RV32, `-arch rv32`)**: Hazard3 RV32IMAC + Zba/Zbb/Zbs/Zcb/Zcmp + Zfinx single-float, CLINT, dual-hart; littleOS shell. Firmware auto-detects via UF2 family ID / picobin IMAGE_DEF. **Networking**: vnet bus (TAP bridge, peer mesh), W5500/W6300 live sockets (`-net-live`, `-net-live6300`, `web/net_proxy.py`), MACRAW socket-0 single-gateway path shared by WiFi + both Ethernet chips. **Wired Ethernet**: `pico-eth`/`pico-eth2` (W5500, SPI0 CS17/RST20/INT21) + `pico-w6300`/`pico-w6300-2` (W6300 dual IPv4/IPv6 offload, SPI0 QSPI-single CS16/RST22/INT15); in-tree `eth_dhcp`/`eth_http`/`eth_dhcp6300`/`eth_http6300` guests (DORA + HTTP on all three cores) + Arduino `Wiznet5500lwIP` / `W6300lwIP` DORA prove-outs (see CHANGELOG). **Bluetooth**: HCI responder + GATT loopback (`GATT-DONE`, sweep-locked), HCI-forward to Bumble/RootCanal/physical (`web/hci_bridge.py`), ARM `ble_adv` guests reach `ARM BLE LISTEN`.
 
 ### Coverage
 
@@ -44,7 +44,7 @@ monitor and GPIO viewer. Full usage + every API export: [`docs/PICOEMU.md`](docs
 | Multi-Device | Wire + SDD | UART/GPIO/Ethernet instance links (`-wire-*`), TMP102 thermometer + 24LC256 EEPROM (`-sdd`) |
 | Performance | ICache + JIT | 64K decode cache default, `-jit` hot blocks; native ~86 MIPS, WASM ~22–25 MIPS |
 | Dev Tools | 18 tools | Semihosting, coverage, hotspots, profile, trace, callgraph, VCD, IRQ latency, stack check, watch, expect, script, fault injection, heatmap, symbols, exit codes, timeouts |
- | Tests | 474 | CTest integrated; RV + M33 + networking + storage + W6300 dual-stack/PACKET-INFO/RA-capture |
+ | Tests | 495 | CTest integrated; RV + M33 + networking + storage + W6300 dual-stack/PACKET-INFO/RA-capture |
 
 ### Peripherals
 
@@ -303,6 +303,18 @@ python3 web/gateway_bridge.py --sock /tmp/gw.sock --room lab  # lease .2
 ./picoemu fw_sensor.uf2 -wire-eth /tmp/mesh.sock -sdd thermometer:temp=42
 ```
 
+**JS mirrors** (observation channels for external simulators):
+```bash
+# I2C slave that ACKs 0x3C and mirrors every transaction
+# (works for DW-controller AND GPIO bit-bang masters, so
+# MicroPython machine.I2C.scan() sees it)
+./picoemu firmware.uf2 -sdd jsmirror:i2c=0,addr=0x3c
+./picoemu firmware.uf2 -sdd jsmirror:i2c=0,addr=0x3c,addr=0x27
+
+# SPI slave: MOSI observe + MISO inject (replaces sdcard/emmc on the bus)
+./picoemu firmware.uf2 -sdd spimirror:spi=0
+```
+
 **Storage Devices (SD Card / eMMC):**
 
 ```bash
@@ -365,7 +377,7 @@ Pico-emu/
 │   ├── gdb.c / devtools.c / corepool.c
 │   └── wasm_net.c / fuse_mount_wasm.c  # Browser shims
 ├── include/ (+ rp2350_arm/ + rp2350_rv/)  # Per-module register definitions
-├── tests/test_suite.c           # 474 unit tests (CTest integrated)
+├── tests/test_suite.c           # 495 unit tests (CTest integrated)
 ├── test-firmware/               # .S guests + gen_*.py + *_peer_test.py + sweep_all.sh
 ├── web/                         # Browser bench (index/docs/about), cli.js,
 │                                #   picoemu.wasm.*, prebuilt *.uf2, net/hci bridges

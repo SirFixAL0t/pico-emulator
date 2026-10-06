@@ -12,6 +12,20 @@ source "$SCRIPT_DIR/../emsdk/emsdk_env.sh" 2>/dev/null || {
 echo "=== Pico-emu WASM Build ==="
 echo "Emscripten: $(emcc --version | head -1)"
 
+# Pinned toolchain (pico-emu.md contract): the .wasm rebuild is only
+# reproducible with this exact Emscripten. Mismatched toolchains have
+# silently changed codegen before; fail loudly instead.
+PINNED_EMSDK="$(cat "$SCRIPT_DIR/emsdk-version" 2>/dev/null | tr -d ' \t\r\n')"
+if [ -z "$PINNED_EMSDK" ]; then
+  echo "error: emsdk-version file missing" >&2
+  exit 1
+fi
+if ! emcc --version 2>/dev/null | head -1 | grep -q "$PINNED_EMSDK"; then
+  echo "error: emsdk $PINNED_EMSDK required (see emsdk-version), got: $(emcc --version 2>/dev/null | head -1)" >&2
+  echo "  fix: emsdk install $PINNED_EMSDK && emsdk activate $PINNED_EMSDK" >&2
+  exit 1
+fi
+
 mkdir -p web
 
 COMMON_FLAGS="-O3 -msimd128 -Wall -Wno-macro-redefined -Wno-logical-not-parentheses -Wno-format"
@@ -26,6 +40,7 @@ SOURCES=(
   src/rom.c src/gdb.c src/storage.c src/sdcard.c src/emmc.c
   src/fatfs.c src/w5500.c src/w6300.c src/bme280.c src/cyw43.c
   src/devtools.c src/vnet.c src/sdd.c src/sdd_thermo.c src/sdd_eeprom.c
+  src/sdd_jsmirror.c src/i2c_bitbang.c src/sdd_spimirror.c
   src/rp2350_rv/rv_cpu.c src/rp2350_rv/rv_clint.c
   src/rp2350_rv/rv_membus.c src/rp2350_rv/rv_bootrom.c
   src/rp2350_rv/rp2350_periph.c src/rp2350_rv/picobin.c
@@ -49,6 +64,10 @@ EXPORTS='[
   "_picoemu_flash_save","_picoemu_flash_load","_picoemu_flash_write",
   "_picoemu_sdcard_load","_picoemu_emmc_load",
   "_picoemu_net_enable","_picoemu_net_enable6300","_picoemu_sdd_add",  "_picoemu_eth_push_rx",
+  "_picoemu_jsmirror_pending","_picoemu_jsmirror_drops","_picoemu_jsmirror_pop",
+  "_picoemu_spimirror_pending","_picoemu_spimirror_drops","_picoemu_spimirror_pop",
+  "_picoemu_spimirror_inject",
+  "_picoemu_adc_set","_picoemu_adc_get","_picoemu_pwm_read","_picoemu_cycle_count",
   "_picoemu_eth_pop_tx","_picoemu_eth_set_uplink","_picoemu_wifi_enable","_picoemu_board_eth",
   "_picoemu_bt_hci_enable","_picoemu_bt_hci_pop_tx","_picoemu_bt_hci_push_rx",
   "_picoemu_w5500_push_rx","_picoemu_w5500_push_status","_picoemu_ws_send_w5500",
